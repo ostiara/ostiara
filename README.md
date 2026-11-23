@@ -1,6 +1,13 @@
-# ostiara
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/ostiara-mark-dark.svg">
+    <img src="assets/logo/ostiara-mark.svg" alt="ostiara" width="96">
+  </picture>
+</p>
 
-*The doorkeeper for your Kubernetes pods.*
+<h1 align="center">ostiara</h1>
+
+<p align="center"><em>The doorkeeper for your Kubernetes pods.</em></p>
 
 Gated, approval-based access to Kubernetes pods: an open-source alternative to `kubectl exec`.
 Nobody gets a shell until a teammate lets them in.
