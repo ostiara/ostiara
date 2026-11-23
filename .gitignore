@@ -1,0 +1,11 @@
+# Build output
+/bin/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local env
+.env
+*.local

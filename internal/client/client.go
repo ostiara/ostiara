@@ -1,0 +1,140 @@
+// Package client is the CLI's HTTP client for the broker.
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/ostiara/ostiara/internal/api"
+	"github.com/ostiara/ostiara/internal/wire"
+)
+
+// Client calls one broker as one user.
+type Client struct {
+	BaseURL string
+	User    string
+	HTTP    *http.Client
+}
+
+func New(baseURL, user string) *Client {
+	return &Client{
+		BaseURL: strings.TrimRight(baseURL, "/"),
+		User:    user,
+		HTTP:    &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+func (c *Client) CreateSession(ctx context.Context, req api.CreateSessionRequest) (api.Session, error) {
+	var sess api.Session
+	err := c.do(ctx, http.MethodPost, "/v1/sessions", req, &sess)
+	return sess, err
+}
+
+func (c *Client) GetSession(ctx context.Context, id string) (api.Session, error) {
+	var sess api.Session
+	err := c.do(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(id), nil, &sess)
+	return sess, err
+}
+
+// ListSessions lists sessions; an empty status lists all.
+func (c *Client) ListSessions(ctx context.Context, status api.Status) ([]api.Session, error) {
+	path := "/v1/sessions"
+	if status != "" {
+		path += "?status=" + url.QueryEscape(string(status))
+	}
+	var sessions []api.Session
+	err := c.do(ctx, http.MethodGet, path, nil, &sessions)
+	return sessions, err
+}
+
+// Decide approves (true) or denies (false) a session.
+func (c *Client) Decide(ctx context.Context, id string, approve bool) (api.Session, error) {
+	action := "deny"
+	if approve {
+		action = "approve"
+	}
+	var sess api.Session
+	err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/"+action, nil, &sess)
+	return sess, err
+}
+
+// Attach opens the live WebSocket for an approved session.
+func (c *Client) Attach(ctx context.Context, id string) (*wire.Conn, error) {
+	u, err := url.Parse(c.BaseURL + "/v1/sessions/" + url.PathEscape(id) + "/attach")
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme == "https" {
+		u.Scheme = "wss"
+	} else {
+		u.Scheme = "ws"
+	}
+
+	header := http.Header{}
+	header.Set(api.UserHeader, c.User)
+
+	ws, resp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
+	if err != nil {
+		if resp != nil {
+			if msg := readError(resp.Body); msg != "" {
+				return nil, errors.New(msg)
+			}
+		}
+		return nil, fmt.Errorf("connecting to session: %w", err)
+	}
+	return wire.New(ws), nil
+}
+
+// do sends one JSON request and decodes the JSON reply into out.
+func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	var body io.Reader
+	if in != nil {
+		data, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(api.UserHeader, c.User)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("can't reach the broker at %s: %w", c.BaseURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		if msg := readError(resp.Body); msg != "" {
+			return errors.New(msg)
+		}
+		return fmt.Errorf("broker returned %s", resp.Status)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func readError(body io.Reader) string {
+	var e api.ErrorResponse
+	if json.NewDecoder(io.LimitReader(body, 64<<10)).Decode(&e) != nil {
+		return ""
+	}
+	return e.Error
+}

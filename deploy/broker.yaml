@@ -1,0 +1,81 @@
+# ostiara broker: the only identity with pods/exec.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ostiara-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ostiara-broker
+  namespace: ostiara-system
+---
+# Only: look up pods and exec into them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ostiara-broker
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ostiara-broker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ostiara-broker
+subjects:
+  - kind: ServiceAccount
+    name: ostiara-broker
+    namespace: ostiara-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ostiara-broker
+  namespace: ostiara-system
+spec:
+  replicas: 1 # in-memory sessions: exactly one
+  selector:
+    matchLabels: { app: ostiara-broker }
+  template:
+    metadata:
+      labels: { app: ostiara-broker }
+    spec:
+      serviceAccountName: ostiara-broker
+      containers:
+        - name: broker
+          image: ostiara:dev
+          imagePullPolicy: IfNotPresent
+          args: ["-addr", ":8080"]
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ostiara-broker
+  namespace: ostiara-system
+spec:
+  selector: { app: ostiara-broker }
+  ports:
+    - port: 8080
+      targetPort: 8080
