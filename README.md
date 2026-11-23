@@ -70,3 +70,6 @@ kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
 go test ./...          # session rules: self-approval, one-time use, expiry, ...
 go test -race ./...    # also check for data races
 ```
+
+## License
+[Apache 2.0](LICENSE)
