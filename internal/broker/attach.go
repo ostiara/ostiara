@@ -18,7 +18,7 @@ import (
 
 // attach proxies an approved session: CLI ⇄ WebSocket ⇄ broker ⇄ exec ⇄ container.
 func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
+	user, ok := s.requireUser(w, r)
 	if !ok {
 		return
 	}

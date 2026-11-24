@@ -31,7 +31,7 @@ func runBroker(args []string) error {
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           broker.NewServer(broker.NewStore(), clientset, config, logger).Handler(),
+		Handler:           broker.NewServer(broker.NewStore(), broker.HeaderAuth{}, clientset, config, logger).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

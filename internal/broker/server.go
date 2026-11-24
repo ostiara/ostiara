@@ -19,13 +19,14 @@ import (
 // Server is the broker's HTTP API.
 type Server struct {
 	store     *Store
+	auth      Authenticator
 	clientset *kubernetes.Clientset
 	config    *rest.Config
 	log       *slog.Logger
 }
 
-func NewServer(store *Store, clientset *kubernetes.Clientset, config *rest.Config, log *slog.Logger) *Server {
-	return &Server{store: store, clientset: clientset, config: config, log: log}
+func NewServer(store *Store, auth Authenticator, clientset *kubernetes.Clientset, config *rest.Config, log *slog.Logger) *Server {
+	return &Server{store: store, auth: auth, clientset: clientset, config: config, log: log}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -43,7 +44,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
+	user, ok := s.requireUser(w, r)
 	if !ok {
 		return
 	}
@@ -83,7 +84,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUser(w, r); !ok {
+	if _, ok := s.requireUser(w, r); !ok {
 		return
 	}
 	sessions := s.store.List(api.Status(r.URL.Query().Get("status")))
@@ -94,7 +95,7 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUser(w, r); !ok {
+	if _, ok := s.requireUser(w, r); !ok {
 		return
 	}
 	sess, err := s.store.Get(r.PathValue("id"))
@@ -108,7 +109,7 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 // decide returns the handler for /approve or /deny.
 func (s *Server) decide(approve bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, ok := requireUser(w, r)
+		user, ok := s.requireUser(w, r)
 		if !ok {
 			return
 		}
@@ -130,10 +131,15 @@ var upgrader = websocket.Upgrader{
 
 // --- helpers ---
 
-func requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
-	user := r.Header.Get(api.UserHeader)
-	if user == "" {
-		writeError(w, http.StatusUnauthorized, "missing "+api.UserHeader+" header (set OSTIARA_USER)")
+func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
+	user, err := s.auth.Authenticate(r)
+	if errors.Is(err, ErrUnauthenticated) {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return "", false
+	}
+	if err != nil {
+		s.log.Error("authentication failed", "err", err)
+		writeError(w, http.StatusBadGateway, "authentication unavailable")
 		return "", false
 	}
 	return user, true
