@@ -10,7 +10,7 @@ metadata:
   name: ostiara-broker
   namespace: ostiara-system
 ---
-# Only: look up pods and exec into them.
+# Only: look up pods, exec into them, and check callers' tokens.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -22,6 +22,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create", "get"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
