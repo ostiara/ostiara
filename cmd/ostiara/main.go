@@ -2,11 +2,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 
 	"github.com/ostiara/ostiara/internal/client"
+	"github.com/ostiara/ostiara/internal/kube"
 )
 
 const usage = `ostiara - the doorkeeper for your Kubernetes pods
@@ -72,7 +74,7 @@ func run(args []string) error {
 	}
 }
 
-// newClient builds a broker client from OSTIARA_BROKER and OSTIARA_USER.
+// newClient builds a broker client from OSTIARA_BROKER, OSTIARA_USER and your kubeconfig token.
 func newClient() *client.Client {
 	broker := os.Getenv("OSTIARA_BROKER")
 	if broker == "" {
@@ -82,5 +84,12 @@ func newClient() *client.Client {
 	if user == "" {
 		user = os.Getenv("USER")
 	}
-	return client.New(broker, user)
+	c := client.New(broker, user)
+	token, err := kube.TokenSource("")
+	if err != nil {
+		c.Token = func(context.Context) (string, error) { return "", err }
+	} else {
+		c.Token = token
+	}
+	return c
 }

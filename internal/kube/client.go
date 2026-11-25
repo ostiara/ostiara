@@ -11,15 +11,7 @@ import (
 
 // NewClient loads kubeconfig like kubectl does ($KUBECONFIG, ~/.kube/config, or in-cluster).
 func NewClient(kubeconfigPath string) (*kubernetes.Clientset, *rest.Config, error) {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	if kubeconfigPath != "" {
-		loadingRules.ExplicitPath = kubeconfigPath
-	}
-
-	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		loadingRules,
-		&clientcmd.ConfigOverrides{},
-	).ClientConfig()
+	config, err := loadConfig(kubeconfigPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
@@ -29,4 +21,15 @@ func NewClient(kubeconfigPath string) (*kubernetes.Clientset, *rest.Config, erro
 		return nil, nil, fmt.Errorf("creating kubernetes client: %w", err)
 	}
 	return clientset, config, nil
+}
+
+func loadConfig(kubeconfigPath string) (*rest.Config, error) {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfigPath != "" {
+		loadingRules.ExplicitPath = kubeconfigPath
+	}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loadingRules,
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
 }
