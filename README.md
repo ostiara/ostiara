@@ -25,8 +25,8 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
 1. ✅ `exec` streams a shell into a pod, like `kubectl exec`.
 2. ✅ **Broker**: holds the only `pods/exec` permission; sessions need a teammate's
    approval; one approval = one connection; requests and approvals expire; audit log.
-3. **Real identity** ⚠️: today the user name is self-declared (`OSTIARA_USER`). Next:
-   verify users via Kubernetes TokenReview / OIDC, and remove `pods/exec` from everyone else.
+3. ✅ **Real identity**: the broker checks each caller's Kubernetes token (TokenReview),
+   so EKS/GKE/OIDC/ServiceAccount logins all work; developers get a role without `pods/exec`.
 4. Slack / Teams approvals, routed to the pod's owning team.
 5. Read-only actions without approval (logs, env, ps), each logged.
 6. Session recording, persistent storage, HA broker.
@@ -45,16 +45,28 @@ internal/broker/          session store (rules), HTTP API, exec proxy
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
 deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment
+deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
+testdata/demo-users.yaml  alice and bob as ServiceAccounts, for trying real identity
+hack/demo-kubeconfig.sh   writes a kubeconfig that logs in as alice or bob
 ```
 
-## Try it locally
+## How callers are identified
+The CLI sends the same bearer token kubectl would (from your kubeconfig, including
+exec plugins such as `aws eks get-token`). The broker asks Kubernetes who it belongs to,
+so nobody can claim to be someone else. The token is only sent over https, or plain
+http to localhost (e.g. `kubectl port-forward`).
+
+For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
+Never use it in a shared cluster.
+
+## Try it locally (dev mode)
 ```bash
 go build -o bin/ostiara ./cmd/ostiara
 kubectl apply -f testdata/demo-pod.yaml
 
-# terminal 1: the broker (uses your kubeconfig)
-./bin/ostiara broker
+# terminal 1: the broker, trusting OSTIARA_USER
+./bin/ostiara broker -auth header
 
 # terminal 2: alice asks for access
 OSTIARA_USER=alice ./bin/ostiara exec -n demo -reason "debugging" demo-pod
@@ -64,17 +76,29 @@ OSTIARA_USER=bob ./bin/ostiara list
 OSTIARA_USER=bob ./bin/ostiara approve <ID>
 ```
 
-## Run the broker in the cluster (kind)
+## Run it in the cluster with real identity (kind)
 ```bash
 docker build -t ostiara:dev .
 kind load docker-image ostiara:dev
-kubectl apply -f deploy/broker.yaml
+kubectl apply -f deploy/broker.yaml -f deploy/dev-role.yaml
+kubectl apply -f testdata/demo-pod.yaml -f testdata/demo-users.yaml
 kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
+
+# alice and bob each get a kubeconfig with only their own token (valid 1h)
+hack/demo-kubeconfig.sh alice
+hack/demo-kubeconfig.sh bob
+
+# alice can't exec directly...
+KUBECONFIG=bin/kubeconfig-alice kubectl exec demo-pod -- sh    # forbidden
+# ...so she asks, and bob approves
+KUBECONFIG=bin/kubeconfig-alice ./bin/ostiara exec -n demo demo-pod
+KUBECONFIG=bin/kubeconfig-bob ./bin/ostiara list
+KUBECONFIG=bin/kubeconfig-bob ./bin/ostiara approve <ID>
 ```
 
 ## Tests
 ```bash
-go test ./...          # session rules: self-approval, one-time use, expiry, ...
+go test ./...          # session rules, authentication, token handling, ...
 go test -race ./...    # also check for data races
 ```
 
