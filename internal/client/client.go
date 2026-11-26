@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +24,7 @@ import (
 type Client struct {
 	BaseURL string
 	User    string
+	Token   func(context.Context) (string, error) // nil: send no bearer token
 	HTTP    *http.Client
 }
 
@@ -80,8 +82,10 @@ func (c *Client) Attach(ctx context.Context, id string) (*wire.Conn, error) {
 		u.Scheme = "ws"
 	}
 
-	header := http.Header{}
-	header.Set(api.UserHeader, c.User)
+	header, err := c.headers(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	ws, resp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
 	if err != nil {
@@ -110,8 +114,12 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if err != nil {
 		return err
 	}
+	header, err := c.headers(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header = header
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(api.UserHeader, c.User)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -129,6 +137,43 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// headers identifies the caller: the bearer token if there is one, plus the dev-only user header.
+func (c *Client) headers(ctx context.Context) (http.Header, error) {
+	header := http.Header{}
+	header.Set(api.UserHeader, c.User)
+	if c.Token == nil {
+		return header, nil
+	}
+	token, err := c.Token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if token == "" {
+		return header, nil
+	}
+	if !safeForToken(c.BaseURL) {
+		return nil, fmt.Errorf("refusing to send your Kubernetes token to %s over plain http; use https", c.BaseURL)
+	}
+	header.Set("Authorization", "Bearer "+token)
+	return header, nil
+}
+
+// safeForToken allows https anywhere, and plain http only to this machine (e.g. kubectl port-forward).
+func safeForToken(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		ip := net.ParseIP(u.Hostname())
+		return u.Hostname() == "localhost" || (ip != nil && ip.IsLoopback())
+	}
+	return false
 }
 
 func readError(body io.Reader) string {
