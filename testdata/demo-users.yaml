@@ -1,0 +1,30 @@
+# Two demo developers as ServiceAccounts, so kind can issue them real tokens.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alice
+  namespace: demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bob
+  namespace: demo
+---
+# Same developer role as deploy/dev-role.yaml: see pods, no exec.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ostiara-demo-developers
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ostiara-developer
+subjects:
+  - kind: ServiceAccount
+    name: alice
+    namespace: demo
+  - kind: ServiceAccount
+    name: bob
+    namespace: demo

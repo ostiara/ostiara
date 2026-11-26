@@ -22,7 +22,7 @@ func runBroker(args []string) error {
 	fs := flag.NewFlagSet("broker", flag.ContinueOnError)
 	addr := fs.String("addr", ":8080", "address to listen on")
 	kubeconfig := fs.String("kubeconfig", "", "path to kubeconfig (default: in-cluster, $KUBECONFIG or ~/.kube/config)")
-	authMode := fs.String("auth", "header", "how to identify callers: tokenreview, or header (dev only)")
+	authMode := fs.String("auth", "tokenreview", "how to identify callers: tokenreview, or header (dev only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
