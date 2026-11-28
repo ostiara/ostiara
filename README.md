@@ -29,7 +29,8 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
    so EKS/GKE/OIDC/ServiceAccount logins all work; developers get a role without `pods/exec`.
 4. ✅ **Port-forward**: `ostiara port-forward` reaches one pod port after a teammate
    approves, for a time window (default 15m, max 1h); every connection is logged.
-5. Slack / Teams approvals, routed to the pod's owning team.
+5. 🚧 **Slack / Teams**: ✅ notifications of requests and decisions; next, routing to the
+   pod's owning team, and approve buttons that still require the approver's cluster login.
 6. Read-only actions without approval (logs, env, ps), each logged.
 7. Session recording, persistent storage, HA broker.
 
@@ -45,6 +46,7 @@ internal/api/             JSON types shared by CLI and broker
 internal/wire/            framing for the live session WebSocket
 internal/broker/          session store (rules), HTTP API, exec proxy
 internal/audit/           audit events, and the check against Kubernetes audit logs
+internal/notify/          Slack and Teams messages about requests and decisions
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
 deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment, NetworkPolicy
@@ -108,6 +110,21 @@ ostiara port-forward -n demo -for 30m -reason "check the queue" db-0 15432:5432
 The approver sees the pod, port and window. Any number of connections may use one approval,
 each logged as `forward.opened` / `forward.closed`; when the window ends, open connections
 are cut. The local end only listens on 127.0.0.1.
+
+## Chat notifications
+The broker can post every request, approval and denial to Slack and/or Microsoft Teams, with
+the pod, the access asked for, the reason and the `ostiara approve` command to run. Chat only
+announces: approving still happens in the CLI, checked against the approver's Kubernetes
+identity, so a hijacked chat account can't approve anything.
+```bash
+kubectl -n ostiara-system create secret generic ostiara-notify \
+  --from-literal=slack-webhook-url=https://hooks.slack.com/services/... \
+  --from-literal=teams-webhook-url=https://...   # a Teams Workflows webhook; either key is optional
+kubectl -n ostiara-system rollout restart deploy/ostiara-broker
+```
+Messages are sent in the background, so a slow or broken chat service never holds up a
+request, and webhook URLs never appear in logs. The NetworkPolicy above only limits traffic
+into the broker, so outgoing webhook calls work.
 
 ## Audit and detection
 The broker writes every request, approval, attach and exit as JSON lines

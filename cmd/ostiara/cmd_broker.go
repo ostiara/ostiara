@@ -9,16 +9,20 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/broker"
 	"github.com/ostiara/ostiara/internal/kube"
+	"github.com/ostiara/ostiara/internal/notify"
 )
 
 // runBroker serves the broker API until interrupted.
@@ -67,9 +71,17 @@ func runBroker(args []string) error {
 	}
 	defer closeAudit()
 
+	notifier, err := newNotifier(logger)
+	if err != nil {
+		return err
+	}
+	if notifier != nil {
+		defer notifier.Close()
+	}
+
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           broker.NewServer(broker.NewStore(), auth, clientset, config, logger, auditLog).Handler(),
+		Handler:           newBrokerServer(auth, clientset, config, logger, auditLog, notifier).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig:         tlsConf,
 	}
@@ -155,4 +167,47 @@ func openAudit(path string) (*audit.Log, func(), error) {
 		return nil, nil, fmt.Errorf("open audit log: %w", err)
 	}
 	return audit.New(f), func() { f.Close() }, nil
+}
+
+func newBrokerServer(auth broker.Authenticator, clientset kubernetes.Interface, config *rest.Config,
+	logger *slog.Logger, auditLog *audit.Log, notifier *notify.Dispatcher) *broker.Server {
+	srv := broker.NewServer(broker.NewStore(), auth, clientset, config, logger, auditLog)
+	if notifier != nil {
+		srv.WithNotifier(notifier)
+	}
+	return srv
+}
+
+// newNotifier reads webhook URLs from the environment (mount them from a Secret); none set means no chat.
+func newNotifier(logger *slog.Logger) (*notify.Dispatcher, error) {
+	var senders []notify.Sender
+	for _, w := range []struct {
+		env  string
+		make func(string) notify.Sender
+	}{
+		{"OSTIARA_SLACK_WEBHOOK_URL", func(u string) notify.Sender { return notify.Slack{URL: u} }},
+		{"OSTIARA_TEAMS_WEBHOOK_URL", func(u string) notify.Sender { return notify.Teams{URL: u} }},
+	} {
+		raw := strings.TrimSpace(os.Getenv(w.env))
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+			return nil, fmt.Errorf("%s isn't a valid http(s) URL", w.env) // don't echo it: it's a secret
+		}
+		if u.Scheme != "https" {
+			logger.Warn("webhook URL isn't https; use http only for local testing", "env", w.env)
+		}
+		senders = append(senders, w.make(raw))
+	}
+	if len(senders) == 0 {
+		return nil, nil
+	}
+	names := []string{}
+	for _, s := range senders {
+		names = append(names, s.Name())
+	}
+	logger.Info("chat notifications on", "to", strings.Join(names, ","))
+	return notify.NewDispatcher(logger, senders...), nil
 }
