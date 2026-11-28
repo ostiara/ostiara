@@ -25,6 +25,7 @@ func runBroker(args []string) error {
 	addr := fs.String("addr", ":8080", "address to listen on")
 	kubeconfig := fs.String("kubeconfig", "", "path to kubeconfig (default: in-cluster, $KUBECONFIG or ~/.kube/config)")
 	authMode := fs.String("auth", "tokenreview", "how to identify callers: tokenreview, or header (dev only)")
+	audience := fs.String("token-audience", "", "only accept tokens issued for this audience, e.g. ostiara (tokenreview only)")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file (PEM); serve HTTPS when set with -tls-key")
 	tlsKey := fs.String("tls-key", "", "TLS private key file (PEM)")
 	if err := fs.Parse(args); err != nil {
@@ -36,7 +37,7 @@ func runBroker(args []string) error {
 	if err != nil {
 		return err
 	}
-	auth, err := newAuthenticator(*authMode, clientset)
+	auth, err := newAuthenticator(*authMode, *audience, clientset)
 	if err != nil {
 		return err
 	}
@@ -63,7 +64,8 @@ func runBroker(args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("broker listening", "addr", *addr, "apiServer", config.Host, "auth", *authMode, "tls", tlsConf != nil)
+		logger.Info("broker listening", "addr", *addr, "apiServer", config.Host, "auth", *authMode,
+			"tokenAudience", *audience, "tls", tlsConf != nil)
 		if tlsConf != nil {
 			errCh <- srv.ListenAndServeTLS("", "")
 		} else {
@@ -83,11 +85,14 @@ func runBroker(args []string) error {
 }
 
 // newAuthenticator picks how the broker identifies callers.
-func newAuthenticator(mode string, clientset kubernetes.Interface) (broker.Authenticator, error) {
+func newAuthenticator(mode, audience string, clientset kubernetes.Interface) (broker.Authenticator, error) {
 	switch mode {
 	case "tokenreview":
-		return broker.TokenReviewAuth{Reviews: clientset.AuthenticationV1().TokenReviews()}, nil
+		return broker.TokenReviewAuth{Reviews: clientset.AuthenticationV1().TokenReviews(), Audience: audience}, nil
 	case "header":
+		if audience != "" {
+			return nil, errors.New("-token-audience needs -auth tokenreview")
+		}
 		return broker.HeaderAuth{}, nil
 	default:
 		return nil, fmt.Errorf("unknown -auth %q (want tokenreview or header)", mode)

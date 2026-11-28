@@ -3,6 +3,7 @@ package broker
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	authnv1 "k8s.io/api/authentication/v1"
@@ -12,7 +13,8 @@ import (
 
 // TokenReviewAuth asks the Kubernetes API who a bearer token belongs to.
 type TokenReviewAuth struct {
-	Reviews authnclient.TokenReviewInterface
+	Reviews  authnclient.TokenReviewInterface
+	Audience string // "": accept any token the API server accepts
 }
 
 func (a TokenReviewAuth) Authenticate(r *http.Request) (string, error) {
@@ -22,12 +24,19 @@ func (a TokenReviewAuth) Authenticate(r *http.Request) (string, error) {
 	}
 
 	review := &authnv1.TokenReview{Spec: authnv1.TokenReviewSpec{Token: token}}
+	if a.Audience != "" {
+		review.Spec.Audiences = []string{a.Audience}
+	}
 	result, err := a.Reviews.Create(r.Context(), review, metav1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("token review: %w", err)
 	}
 	if !result.Status.Authenticated || result.Status.User.Username == "" {
 		return "", fmt.Errorf("%w: invalid token", ErrUnauthenticated)
+	}
+	// The API server must confirm the audience; an empty list means it didn't check.
+	if a.Audience != "" && !slices.Contains(result.Status.Audiences, a.Audience) {
+		return "", fmt.Errorf("%w: token not issued for audience %q", ErrUnauthenticated, a.Audience)
 	}
 	return result.Status.User.Username, nil
 }
