@@ -14,19 +14,22 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/ostiara/ostiara/internal/api"
+	"github.com/ostiara/ostiara/internal/audit"
 )
 
 // Server is the broker's HTTP API.
 type Server struct {
 	store     *Store
 	auth      Authenticator
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 	config    *rest.Config
 	log       *slog.Logger
+	audit     *audit.Log
 }
 
-func NewServer(store *Store, auth Authenticator, clientset *kubernetes.Clientset, config *rest.Config, log *slog.Logger) *Server {
-	return &Server{store: store, auth: auth, clientset: clientset, config: config, log: log}
+func NewServer(store *Store, auth Authenticator, clientset kubernetes.Interface, config *rest.Config,
+	log *slog.Logger, auditLog *audit.Log) *Server {
+	return &Server{store: store, auth: auth, clientset: clientset, config: config, log: log, audit: auditLog}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -78,8 +81,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.log.Info("session requested", "id", sess.ID, "requester", user,
-		"namespace", sess.Namespace, "pod", sess.Pod, "command", sess.Command, "reason", sess.Reason)
+	e := audit.ForSession(audit.Requested, sess)
+	e.Actor = user
+	s.record(e)
 	writeJSON(w, http.StatusCreated, sess)
 }
 
@@ -115,11 +119,17 @@ func (s *Server) decide(approve bool) http.HandlerFunc {
 		}
 		sess, err := s.store.Decide(r.PathValue("id"), user, approve)
 		if err != nil {
+			s.recordRefusal(r.PathValue("id"), user, err)
 			writeStoreError(w, err)
 			return
 		}
-		s.log.Info("session "+string(sess.Status), "id", sess.ID,
-			"requester", sess.Requester, "approver", user)
+		kind := audit.Denied
+		if approve {
+			kind = audit.Approved
+		}
+		e := audit.ForSession(kind, sess)
+		e.Actor = user
+		s.record(e)
 		writeJSON(w, http.StatusOK, sess)
 	}
 }
@@ -130,6 +140,23 @@ var upgrader = websocket.Upgrader{
 }
 
 // --- helpers ---
+
+// record writes an audit event; a failure is reported in the operational log.
+func (s *Server) record(e audit.Event) error {
+	err := s.audit.Record(e)
+	if err != nil {
+		s.log.Error("audit log write failed", "event", e.Kind, "session", e.Session, "err", err)
+	}
+	return err
+}
+
+// recordRefusal audits the attempts that matter for security: deciding your own
+// session, or using someone else's.
+func (s *Server) recordRefusal(id, user string, err error) {
+	if errors.Is(err, ErrSelfApproval) || errors.Is(err, ErrNotRequester) {
+		s.record(audit.Event{Kind: audit.Refused, Session: id, Actor: user, Error: err.Error()})
+	}
+}
 
 func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	user, err := s.auth.Authenticate(r)

@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
 
+	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/kube"
 	"github.com/ostiara/ostiara/internal/wire"
 )
@@ -24,6 +25,7 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := s.store.Claim(r.PathValue("id"), user)
 	if err != nil {
+		s.recordRefusal(r.PathValue("id"), user, err)
 		writeStoreError(w, err)
 		return
 	}
@@ -79,8 +81,12 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 		streams.Stderr = conn.Writer(wire.ChanStderr)
 	}
 
-	s.log.Info("session attached", "id", sess.ID, "requester", sess.Requester,
-		"approver", sess.Approver, "namespace", sess.Namespace, "pod", sess.Pod)
+	attached := audit.ForSession(audit.Attached, sess)
+	attached.Actor = user
+	if err := s.record(attached); err != nil {
+		_ = conn.SendJSON(wire.ChanExit, wire.Exit{Code: 1, Error: "audit log unavailable; refusing to open an unlogged session"})
+		return
+	}
 	start := time.Now()
 
 	err = kube.Stream(ctx, s.clientset, s.config, kube.Target{
@@ -103,8 +109,12 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 		exit.Error = err.Error()
 	}
 
-	s.log.Info("session ended", "id", sess.ID, "requester", sess.Requester,
-		"exitCode", exit.Code, "duration", time.Since(start).Round(time.Second).String(), "error", exit.Error)
+	ended := audit.ForSession(audit.Ended, sess)
+	ended.Actor = user
+	ended.ExitCode = &exit.Code
+	ended.Duration = time.Since(start).Round(time.Millisecond).String()
+	ended.Error = exit.Error
+	s.record(ended)
 	_ = conn.SendJSON(wire.ChanExit, exit)
 }
 
