@@ -216,12 +216,15 @@ kubectl -n ostiara-system create secret generic ostiara-notify \
 kubectl -n ostiara-system rollout restart deploy/ostiara-broker
 ```
 Messages are sent in the background, so a slow or broken chat service never holds up a
-request, and webhook URLs never appear in logs. The NetworkPolicy above only limits traffic
+request, and webhook URLs never appear in logs. For a busy or broad channel, run the broker
+with `-notify-detail minimal`: messages then say who asked, for which namespace and kind of
+access, and how to approve, but leave out pod names, commands and reasons. The NetworkPolicy above only limits traffic
 into the broker, so outgoing webhook calls work.
 
 ## Audit and detection
 The broker writes every request, approval, attach and exit as JSON lines
-(`"stream":"ostiara.audit"`). `ostiara audit check` compares them with the Kubernetes API
+(`"stream":"ostiara.audit"`), each chained to the one before by a hash or, with a key, an
+HMAC; `ostiara audit verify` shows if any line was changed, removed or reordered. `ostiara audit check` compares them with the Kubernetes API
 audit log and flags any pod exec, attach or port-forward that no approval explains.
 See [docs/audit.md](docs/audit.md), including the break-glass procedure.
 

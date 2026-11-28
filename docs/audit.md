@@ -35,6 +35,27 @@ or rewritten by whoever controls the broker. Have your log collector (Fluent Bit
 the cloud provider's agent) forward lines with `stream=ostiara.audit` to storage the broker
 can't modify, such as a separate account or a bucket with object lock.
 
+**Every line is chained.** Each event carries a `chain` id (one per broker run), a `seq`
+number and the hash of the line before it (`prev`), and starts with its own `hash`. That makes
+an edited, removed or reordered line visible:
+
+```bash
+ostiara audit verify ostiara-audit.log
+# ✅ chain 3f9a1c2b7d0e: seq 1 to 214, intact
+```
+
+With a plain hash, anyone rewriting the log could recompute every hash, so for stronger
+protection give the broker a key and it signs each line (HMAC-SHA256) instead. Keep the key
+away from wherever the log is stored, and pass the same key to `verify`:
+
+```bash
+kubectl -n ostiara-system create secret generic ostiara-audit-key --from-literal=key="$(openssl rand -hex 32)"
+kubectl -n ostiara-system rollout restart deploy/ostiara-broker
+OSTIARA_AUDIT_KEY=... ostiara audit verify ostiara-audit.log
+```
+
+A cut-off end can't be seen from one file alone: compare the last `seq` with your shipped copy.
+
 ## 2. The Kubernetes audit log
 
 Enable API auditing with the rules in [`deploy/audit-policy.yaml`](../deploy/audit-policy.yaml).
@@ -53,6 +74,21 @@ They record every exec, attach and port-forward, and every change to Roles and b
 kubectl -n ostiara-system logs deploy/ostiara-broker > ostiara-audit.log
 ostiara audit check -k8s /var/log/kubernetes/audit.log -ostiara ostiara-audit.log
 ```
+
+`-k8s` takes the audit log as each platform exports it, and detects which it is:
+
+```bash
+# GKE: Cloud Audit Logs
+gcloud logging read 'protoPayload.methodName=~"io.k8s.core.v1.pods.(exec|attach|portforward)"' \
+  --freshness=1d --format=json > k8s-audit.json
+# EKS: CloudWatch Logs
+aws logs filter-log-events --log-group-name /aws/eks/<cluster>/cluster \
+  --log-stream-name-prefix kube-apiserver-audit > k8s-audit.json
+```
+
+(The GKE and EKS formats are tested against their documented shapes, not yet on live clusters.)
+Add `-notify` to also post a one-line summary of the findings to the Slack or Teams webhooks in
+`OSTIARA_SLACK_WEBHOOK_URL` / `OSTIARA_TEAMS_WEBHOOK_URL`, for example from a nightly job.
 
 It reports two kinds of finding and exits with status 1 if there are any, so you can run it
 from cron or CI and alert on failure:
