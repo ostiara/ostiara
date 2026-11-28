@@ -35,7 +35,9 @@ can't modify, such as a separate account or a bucket with object lock.
 Enable API auditing with the rules in [`deploy/audit-policy.yaml`](../deploy/audit-policy.yaml).
 They record every exec, attach and port-forward, and every change to Roles and bindings.
 
-- **Self-managed / kind:** pass `--audit-policy-file` and `--audit-log-path` to kube-apiserver.
+- **kind:** `hack/kind-up.sh` creates a cluster with these rules (`WORKERS=2` adds worker
+  nodes); read the log with `docker exec kind-control-plane cat /var/log/kubernetes/audit.log`.
+- **Self-managed:** pass `--audit-policy-file` and `--audit-log-path` to kube-apiserver.
 - **EKS:** turn on the `audit` control-plane log type; events land in CloudWatch Logs.
 - **GKE:** Admin Activity audit logs are always on; exec appears as `io.k8s.core.v1.pods.exec.create`.
 - **AKS:** enable the `kube-audit` diagnostic setting.
