@@ -2,7 +2,8 @@
 package audit
 
 import (
-	"encoding/json"
+	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"sync"
 	"time"
@@ -34,6 +35,9 @@ const (
 // Event is one line of the audit log.
 type Event struct {
 	Stream    string    `json:"stream"`
+	Chain     string    `json:"chain,omitempty"` // one per broker run
+	Seq       int64     `json:"seq,omitempty"`   // 1, 2, 3… within the chain
+	Prev      string    `json:"prev,omitempty"`  // hash of the line before, empty for seq 1
 	Time      time.Time `json:"time"`
 	Kind      string    `json:"event"`
 	Session   string    `json:"session"`
@@ -81,32 +85,57 @@ func ForSession(kind string, s api.Session) Event {
 	}
 }
 
-// Log appends events to a writer, one JSON object per line. A nil *Log discards.
+// Log appends events to a writer, one JSON object per line, each chained to the one before
+// by a hash (an HMAC when a key is set). A nil *Log discards.
 type Log struct {
-	mu  sync.Mutex
-	w   io.Writer
-	now func() time.Time
+	mu    sync.Mutex
+	w     io.Writer
+	now   func() time.Time
+	key   []byte
+	chain string
+	seq   int64
+	prev  string
 }
 
 func New(w io.Writer) *Log {
-	return &Log{w: w, now: time.Now}
+	return &Log{w: w, now: time.Now, chain: newChainID()}
 }
 
-// Record writes e, stamping the stream name and time.
+// WithKey signs every line with HMAC-SHA256, so whoever can only edit the stored log can't
+// rewrite it undetected. Keep the key away from where the log is stored.
+func (l *Log) WithKey(key []byte) *Log {
+	l.key = key
+	return l
+}
+
+// Record writes e, stamping the stream name, time and chain position.
 func (l *Log) Record(e Event) error {
 	if l == nil {
 		return nil
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	e.Stream = Stream
 	if e.Time.IsZero() {
 		e.Time = l.now().UTC()
 	}
-	line, err := json.Marshal(e)
+	l.seq++
+	e.Chain, e.Seq, e.Prev = l.chain, l.seq, l.prev
+	line, hash, err := seal(e, l.key)
 	if err != nil {
+		l.seq--
 		return err
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	_, err = l.w.Write(append(line, '\n'))
-	return err
+	if _, err := l.w.Write(append(line, '\n')); err != nil {
+		l.seq--
+		return err
+	}
+	l.prev = hash
+	return nil
+}
+
+func newChainID() string {
+	b := make([]byte, 6)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
