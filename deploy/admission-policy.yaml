@@ -1,0 +1,64 @@
+# Blocks every way into a pod except through the ostiara broker, whatever RBAC or cloud IAM allows.
+# Applies to namespaces labelled ostiara.io/enforce=true. Needs Kubernetes 1.30+.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ostiara-block-direct-access
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CONNECT"]
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods/ephemeralcontainers"] # kubectl debug
+  variables:
+    - name: user
+      expression: request.userInfo.username
+    - name: groups
+      expression: "has(request.userInfo.groups) ? request.userInfo.groups : []"
+    - name: exemptUsers
+      expression: "'exemptUsers' in params.data ? params.data.exemptUsers.split(',').map(s, s.trim()).filter(s, s != '') : []"
+    - name: exemptGroups
+      expression: "'exemptGroups' in params.data ? params.data.exemptGroups.split(',').map(s, s.trim()).filter(s, s != '') : []"
+  validations:
+    - expression: >-
+        variables.user == 'system:serviceaccount:ostiara-system:ostiara-broker' ||
+        variables.user in variables.exemptUsers ||
+        variables.groups.exists(g, g in variables.exemptGroups)
+      messageExpression: >-
+        'direct ' + request.subResource + ' is blocked by ostiara for ' + variables.user +
+        ': use ostiara exec or ostiara port-forward, which need a teammate to approve'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ostiara-block-direct-access
+spec:
+  policyName: ostiara-block-direct-access
+  validationActions: [Deny] # [Warn, Audit] to try it out without blocking anyone
+  paramRef:
+    name: ostiara-admission
+    namespace: ostiara-system
+    parameterNotFoundAction: Deny # a missing ConfigMap blocks everyone, rather than no one
+  matchResources:
+    namespaceSelector:
+      matchLabels: { ostiara.io/enforce: "true" }
+---
+# Break-glass: users or groups (comma-separated) who may still get in directly. Keep it empty.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ostiara-admission
+  namespace: ostiara-system
+data:
+  exemptUsers: ""
+  exemptGroups: ""

@@ -13,4 +13,15 @@ rules:
     resources:
       - group: rbac.authorization.k8s.io
         resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  - level: Metadata # turning ostiara's admission policy off, or opening break-glass
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: admissionregistration.k8s.io
+        resources: ["validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+  - level: Metadata
+    namespaces: ["ostiara-system"]
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: ""
+        resources: ["configmaps"]
   - level: None

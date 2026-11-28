@@ -65,17 +65,24 @@ the evidence intact.
 
 ## 4. Break-glass
 
-If the broker is down during an incident, an admin can grant direct exec for a short time.
-[`deploy/break-glass.yaml`](../deploy/break-glass.yaml) defines the role; nothing binds it.
+If the broker is down during an incident, an admin can allow direct exec for a short time.
+With the admission policy on, that takes two steps: RBAC for the exec right
+([`deploy/break-glass.yaml`](../deploy/break-glass.yaml) defines the role; nothing binds it),
+and an exemption so the policy lets that user through.
 
 ```bash
 kubectl apply -f deploy/break-glass.yaml
 kubectl create rolebinding ostiara-break-glass-<you> -n <namespace> \
   --clusterrole=ostiara-break-glass --user=<you>
+kubectl -n ostiara-system patch configmap ostiara-admission --type merge \
+  -p '{"data":{"exemptUsers":"<you>"}}'
 # ...fix the incident...
+kubectl -n ostiara-system patch configmap ostiara-admission --type merge \
+  -p '{"data":{"exemptUsers":""}}'
 kubectl delete rolebinding ostiara-break-glass-<you> -n <namespace>
 ```
 
-Every step is visible: the audit policy records creating and deleting the binding, and
-each exec shows up as `direct-access` in `ostiara audit check`. Agree up front who may
-break the glass, and review every use afterwards.
+Every step is visible: the audit policy records changes to the binding and to the
+`ostiara-admission` ConfigMap, each exec shows up as `direct-access` in `ostiara audit check`,
+and `ostiara doctor` warns while the exemption is open. Agree up front who may break the
+glass, and review every use afterwards.
