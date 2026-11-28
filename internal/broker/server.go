@@ -16,6 +16,7 @@ import (
 
 	"github.com/ostiara/ostiara/internal/api"
 	"github.com/ostiara/ostiara/internal/audit"
+	"github.com/ostiara/ostiara/internal/notify"
 )
 
 // Server is the broker's HTTP API.
@@ -26,6 +27,24 @@ type Server struct {
 	config    *rest.Config
 	log       *slog.Logger
 	audit     *audit.Log
+	notifier  Notifier
+}
+
+// Notifier tells the team's chat about requests and decisions. Notify must not block.
+type Notifier interface {
+	Notify(notify.Event)
+}
+
+// WithNotifier turns on chat notifications.
+func (s *Server) WithNotifier(n Notifier) *Server {
+	s.notifier = n
+	return s
+}
+
+func (s *Server) announce(kind string, sess api.Session) {
+	if s.notifier != nil {
+		s.notifier.Notify(notify.Event{Kind: kind, Session: sess})
+	}
 }
 
 func NewServer(store *Store, auth Authenticator, clientset kubernetes.Interface, config *rest.Config,
@@ -87,6 +106,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	e := audit.ForSession(audit.Requested, sess)
 	e.Actor = user
 	s.record(e)
+	s.announce(notify.Requested, sess)
 	writeJSON(w, http.StatusCreated, sess)
 }
 
@@ -126,13 +146,14 @@ func (s *Server) decide(approve bool) http.HandlerFunc {
 			writeStoreError(w, err)
 			return
 		}
-		kind := audit.Denied
+		kind, announced := audit.Denied, notify.Denied
 		if approve {
-			kind = audit.Approved
+			kind, announced = audit.Approved, notify.Approved
 		}
 		e := audit.ForSession(kind, sess)
 		e.Actor = user
 		s.record(e)
+		s.announce(announced, sess)
 		writeJSON(w, http.StatusOK, sess)
 	}
 }

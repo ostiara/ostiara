@@ -70,6 +70,11 @@ spec:
             - -token-audience=ostiara # drop for EKS/GKE logins, whose tokens are for the API server
             - -tls-cert=/etc/ostiara/tls/tls.crt
             - -tls-key=/etc/ostiara/tls/tls.key
+          env: # chat notifications, off unless Secret ostiara-notify has these keys
+            - name: OSTIARA_SLACK_WEBHOOK_URL
+              valueFrom: { secretKeyRef: { name: ostiara-notify, key: slack-webhook-url, optional: true } }
+            - name: OSTIARA_TEAMS_WEBHOOK_URL
+              valueFrom: { secretKeyRef: { name: ostiara-notify, key: teams-webhook-url, optional: true } }
           ports:
             - containerPort: 8080
           readinessProbe:
