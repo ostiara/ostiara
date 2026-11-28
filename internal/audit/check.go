@@ -44,7 +44,8 @@ type k8sEvent struct {
 	RequestReceivedTimestamp time.Time
 }
 
-// Check reads the Kubernetes API audit log and ostiara's audit log, and reports every
+// Check reads the Kubernetes API audit log (raw, GKE Cloud Audit Logs or EKS CloudWatch export)
+// and ostiara's audit log, and reports every
 // shell, attach or port-forward into a pod that no ostiara approval accounts for.
 func Check(k8sLog, ostiaraLog io.Reader, opts CheckOptions) ([]Finding, error) {
 	// "exec ns/pod" or "portforward ns/pod" -> times ostiara opened an approved connection.
@@ -72,9 +73,8 @@ func Check(k8sLog, ostiaraLog io.Reader, opts CheckOptions) ([]Finding, error) {
 
 	seen := map[string]bool{}
 	var accesses []k8sEvent
-	err = eachLine(k8sLog, func(line []byte) {
-		var e k8sEvent
-		if json.Unmarshal(line, &e) != nil || e.ObjectRef == nil || e.ObjectRef.Resource != "pods" {
+	err = eachK8sEvent(k8sLog, func(e k8sEvent) {
+		if e.ObjectRef == nil || e.ObjectRef.Resource != "pods" {
 			return
 		}
 		if !slices.Contains([]string{"exec", "attach", "portforward"}, e.ObjectRef.Subresource) {

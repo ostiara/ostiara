@@ -67,18 +67,18 @@ func TestNewNotifier(t *testing.T) {
 
 	t.Setenv("OSTIARA_SLACK_WEBHOOK_URL", "")
 	t.Setenv("OSTIARA_TEAMS_WEBHOOK_URL", "")
-	if d, err := newNotifier(logger); d != nil || err != nil {
+	if d, err := newNotifier(logger, "full"); d != nil || err != nil {
 		t.Fatalf("no URLs: got (%v, %v), want no notifier", d, err)
 	}
 
 	t.Setenv("OSTIARA_SLACK_WEBHOOK_URL", "not a url s3cr3t")
-	if _, err := newNotifier(logger); err == nil || strings.Contains(err.Error(), "s3cr3t") {
+	if _, err := newNotifier(logger, "full"); err == nil || strings.Contains(err.Error(), "s3cr3t") {
 		t.Fatalf("bad URL: err = %v, want an error that doesn't echo the URL", err)
 	}
 
 	t.Setenv("OSTIARA_SLACK_WEBHOOK_URL", "https://hooks.slack.example/services/x")
 	t.Setenv("OSTIARA_TEAMS_WEBHOOK_URL", "https://teams.example/workflows/y")
-	d, err := newNotifier(logger)
+	d, err := newNotifier(logger, "full")
 	if err != nil || d == nil {
 		t.Fatalf("both URLs: got (%v, %v)", d, err)
 	}

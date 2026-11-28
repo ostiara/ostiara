@@ -33,6 +33,8 @@ Usage:
       Play back what happened in a recorded session (needs permission to view recordings).
   ostiara doctor [-all] [-strict]
       Show who can still get around ostiara (RBAC, admission policy, platform), as an admin.
+  ostiara audit verify FILE
+      Check the audit log's hash chain: no line changed, removed or reordered.
   ostiara audit check -k8s FILE -ostiara FILE
       Flag every pod exec/attach/port-forward that no ostiara approval explains.
 

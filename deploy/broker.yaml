@@ -84,6 +84,8 @@ spec:
               valueFrom: { secretKeyRef: { name: ostiara-notify, key: slack-webhook-url, optional: true } }
             - name: OSTIARA_TEAMS_WEBHOOK_URL
               valueFrom: { secretKeyRef: { name: ostiara-notify, key: teams-webhook-url, optional: true } }
+            - name: OSTIARA_AUDIT_KEY # signs audit lines (HMAC) when Secret ostiara-audit-key exists
+              valueFrom: { secretKeyRef: { name: ostiara-audit-key, key: key, optional: true } }
           ports:
             - containerPort: 8080
           readinessProbe:

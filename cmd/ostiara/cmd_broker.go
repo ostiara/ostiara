@@ -38,6 +38,7 @@ func runBroker(args []string) error {
 	auditPath := fs.String("audit-log", "-", "where to append audit events as JSON lines: - for stdout, or a file path")
 	recordingsDir := fs.String("recordings-dir", "", "record every exec session into this directory (asciicast files); empty means off")
 	recordInput := fs.Bool("record-input", false, "also record keystrokes, which can include passwords typed at prompts that don't echo")
+	notifyDetail := fs.String("notify-detail", "full", "chat messages: full, or minimal (no pods, commands or reasons)")
 	policyFile := fs.String("policy-file", "", "approval rules per namespace (YAML); empty means one approval from anyone but the requester")
 	actionsFile := fs.String("actions-file", "", "catalog of predefined actions (YAML); empty means the built-in ps, df, env")
 	recordingMax := fs.Int64("recording-max-bytes", recording.DefaultLimit, "cap per recording; longer sessions are cut off and marked truncated")
@@ -75,9 +76,13 @@ func runBroker(args []string) error {
 	if err != nil {
 		return err
 	}
+	if key := os.Getenv("OSTIARA_AUDIT_KEY"); key != "" {
+		auditLog.WithKey([]byte(key))
+		logger.Info("audit log lines are signed (HMAC)")
+	}
 	defer closeAudit()
 
-	notifier, err := newNotifier(logger)
+	notifier, err := newNotifier(logger, *notifyDetail)
 	if err != nil {
 		return err
 	}
@@ -204,7 +209,10 @@ func newBrokerServer(auth broker.Authenticator, clientset kubernetes.Interface, 
 }
 
 // newNotifier reads webhook URLs from the environment (mount them from a Secret); none set means no chat.
-func newNotifier(logger *slog.Logger) (*notify.Dispatcher, error) {
+func newNotifier(logger *slog.Logger, detail string) (*notify.Dispatcher, error) {
+	if detail != "full" && detail != "minimal" {
+		return nil, fmt.Errorf("-notify-detail must be full or minimal, got %q", detail)
+	}
 	var senders []notify.Sender
 	for _, w := range []struct {
 		env  string
@@ -233,8 +241,12 @@ func newNotifier(logger *slog.Logger) (*notify.Dispatcher, error) {
 	for _, s := range senders {
 		names = append(names, s.Name())
 	}
-	logger.Info("chat notifications on", "to", strings.Join(names, ","))
-	return notify.NewDispatcher(logger, senders...), nil
+	logger.Info("chat notifications on", "to", strings.Join(names, ","), "detail", detail)
+	d := notify.NewDispatcher(logger, senders...)
+	if detail == "minimal" {
+		d.Minimal()
+	}
+	return d, nil
 }
 
 // openRecordings checks the recordings directory is writable now, rather than at the first session.
