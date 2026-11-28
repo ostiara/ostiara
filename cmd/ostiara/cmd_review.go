@@ -38,14 +38,14 @@ func runList(args []string) error {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tREQUESTER\tPOD\tCOMMAND\tREASON\tSTATUS\tAGE")
+	fmt.Fprintln(tw, "ID\tREQUESTER\tPOD\tACCESS\tREASON\tSTATUS\tAGE")
 	for _, s := range sessions {
 		reason := s.Reason
 		if reason == "" {
 			reason = "-"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s/%s\t%s\t%s\t%s\t%s\n",
-			s.ID, s.Requester, s.Namespace, s.Pod, strings.Join(s.Command, " "),
+			s.ID, s.Requester, s.Namespace, s.Pod, describeAccess(s),
 			reason, s.Status, time.Since(s.CreatedAt).Round(time.Second))
 	}
 	return tw.Flush()
@@ -63,11 +63,23 @@ func runDecide(args []string, approve bool) error {
 	if err != nil {
 		return err
 	}
-	if approve {
+	switch {
+	case approve && sess.Kind == api.KindPortForward:
+		fmt.Printf("✅ Approved session %s: %s can now forward to %s/%s:%d until %s.\n",
+			sess.ID, sess.Requester, sess.Namespace, sess.Pod, sess.Port, sess.ExpiresAt.Local().Format("15:04"))
+	case approve:
 		fmt.Printf("✅ Approved session %s: %s can now open %s/%s (within 5 minutes, once).\n",
 			sess.ID, sess.Requester, sess.Namespace, sess.Pod)
-	} else {
+	default:
 		fmt.Printf("⛔ Denied session %s for %s.\n", sess.ID, sess.Requester)
 	}
 	return nil
+}
+
+// describeAccess says what a reviewer is approving: the command, or the port and for how long.
+func describeAccess(s api.Session) string {
+	if s.Kind == api.KindPortForward {
+		return fmt.Sprintf("port-forward :%d for %s", s.Port, time.Duration(s.WindowSeconds)*time.Second)
+	}
+	return "exec: " + strings.Join(s.Command, " ")
 }
