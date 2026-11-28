@@ -64,11 +64,15 @@ spec:
         - name: broker
           image: ostiara:dev
           imagePullPolicy: IfNotPresent
-          args: ["-addr", ":8080", "-auth", "tokenreview"]
+          args:
+            - -addr=:8080
+            - -auth=tokenreview
+            - -tls-cert=/etc/ostiara/tls/tls.crt
+            - -tls-key=/etc/ostiara/tls/tls.key
           ports:
             - containerPort: 8080
           readinessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            httpGet: { path: /healthz, port: 8080, scheme: HTTPS }
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits: { memory: 128Mi }
@@ -78,6 +82,14 @@ spec:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/ostiara/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: ostiara-broker-tls # create it first, e.g. hack/broker-cert.sh on kind
 ---
 apiVersion: v1
 kind: Service

@@ -31,6 +31,7 @@ func tlsBroker(t *testing.T) (*httptest.Server, string, *http.Header) {
 		w.Write([]byte("[]"))
 	}))
 	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // the untrusted-client case logs a handshake error
+	srv.EnableHTTP2 = true                           // like the real broker, so a WebSocket that offers h2 breaks
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 

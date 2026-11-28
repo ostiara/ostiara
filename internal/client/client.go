@@ -52,7 +52,7 @@ func (c *Client) TrustCA(pemFile string) error {
 	}
 	c.tls = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = c.tls
+	transport.TLSClientConfig = c.tls.Clone() // net/http adds h2 to its copy; the WebSocket dialer must not see it
 	c.HTTP.Transport = transport
 	return nil
 }
@@ -109,7 +109,7 @@ func (c *Client) Attach(ctx context.Context, id string) (*wire.Conn, error) {
 	}
 
 	dialer := *websocket.DefaultDialer
-	dialer.TLSClientConfig = c.tls
+	dialer.TLSClientConfig = c.tls.Clone()
 	ws, resp, err := dialer.DialContext(ctx, u.String(), header)
 	if err != nil {
 		if resp != nil {

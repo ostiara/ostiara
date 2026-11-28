@@ -50,6 +50,7 @@ deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
 testdata/demo-users.yaml  alice and bob as ServiceAccounts, for trying real identity
 hack/demo-kubeconfig.sh   writes a kubeconfig that logs in as alice or bob
+hack/broker-cert.sh       dev-only CA and broker certificate, as Secret ostiara-broker-tls
 ```
 
 ## How callers are identified
@@ -62,6 +63,9 @@ Serve the broker over HTTPS with `-tls-cert` and `-tls-key` (PEM files). Without
 it serves plain HTTP and logs a warning, because tokens would cross the network unencrypted.
 If the broker's certificate comes from your own CA, point the CLI at it with
 `OSTIARA_CA=/path/to/ca.pem`; the CLI then trusts only that CA for the broker.
+`deploy/broker.yaml` reads the certificate from Secret `ostiara-broker-tls`
+(keys `tls.crt` and `tls.key`), so the broker won't start until it exists. In a real
+cluster, issue it with your own CA or cert-manager.
 
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Never use it in a shared cluster.
@@ -95,8 +99,12 @@ OSTIARA_USER=bob ./bin/ostiara approve <ID>
 docker build -t ostiara:dev .
 kind load docker-image ostiara:dev
 kubectl apply -f testdata/demo-pod.yaml -f testdata/demo-users.yaml
+hack/broker-cert.sh        # throwaway CA + broker certificate, stored as a Secret
 kubectl apply -f deploy/broker.yaml -f deploy/broker-namespace.yaml -f deploy/dev-role.yaml
 kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
+
+# the broker speaks HTTPS; trust the dev CA
+export OSTIARA_BROKER=https://localhost:8080 OSTIARA_CA=bin/tls/ca.crt
 
 # alice and bob each get a kubeconfig with only their own token (valid 1h)
 hack/demo-kubeconfig.sh alice
