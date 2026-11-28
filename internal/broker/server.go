@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/ostiara/ostiara/internal/actions"
 	"github.com/ostiara/ostiara/internal/api"
 	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/notify"
@@ -32,6 +33,7 @@ type Server struct {
 
 	recordings  *recording.Store // nil: sessions aren't recorded
 	recordInput bool
+	actions     *actionSource // nil: the built-in defaults
 }
 
 // WithRecordings records every exec session's output, and its keystrokes too if input is set.
@@ -73,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sessions/{id}/attach", s.attach)
 	mux.HandleFunc("GET /v1/sessions/{id}/forward", s.forward)
 	mux.HandleFunc("GET /v1/sessions/{id}/recording", s.recording)
+	mux.HandleFunc("GET /v1/actions", s.listActions)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
@@ -80,10 +83,11 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireUser(w, r)
+	id, ok := s.requireIdentity(w, r)
 	if !ok {
 		return
 	}
+	user := id.Name
 
 	var req api.CreateSessionRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
@@ -93,6 +97,15 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if req.Namespace == "" || req.Pod == "" {
 		writeError(w, http.StatusBadRequest, "namespace and pod are required")
 		return
+	}
+	req.Redact = ""
+	var action actions.Action
+	if req.Action != "" {
+		var err error
+		if action, err = s.resolveAction(&req); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if err := normalize(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -110,6 +123,21 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An auto action skips the teammate, so the caller must at least be able to read pods there.
+	auto := action.Approval == actions.Auto
+	if auto {
+		allowed, err := s.mayUseNamespace(r.Context(), id, req.Namespace)
+		if err != nil {
+			s.log.Error("authorization check failed", "err", err)
+			writeError(w, http.StatusBadGateway, "authorization unavailable")
+			return
+		}
+		if !allowed {
+			writeError(w, http.StatusForbidden, "running "+req.Action+" without approval needs permission to get pods in "+req.Namespace)
+			return
+		}
+	}
+
 	sess, err := s.store.Create(user, req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -118,7 +146,19 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	e := audit.ForSession(audit.Requested, sess)
 	e.Actor = user
 	s.record(e)
-	s.announce(notify.Requested, sess)
+	if !auto {
+		s.announce(notify.Requested, sess)
+		writeJSON(w, http.StatusCreated, sess)
+		return
+	}
+	if sess, err = s.store.Decide(sess.ID, AutoApprover, true); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	e = audit.ForSession(audit.Approved, sess)
+	e.Actor = AutoApprover
+	s.record(e)
+	s.announce(notify.Approved, sess)
 	writeJSON(w, http.StatusCreated, sess)
 }
 

@@ -45,30 +45,36 @@ func runExec(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 1. Request
 	c, err := newClient()
 	if err != nil {
 		return err
 	}
-	sess, err := c.CreateSession(ctx, api.CreateSessionRequest{
+	return requestAndAttach(ctx, c, api.CreateSessionRequest{
 		Namespace: *namespace,
 		Pod:       pod,
 		Container: *container,
 		Command:   command,
 		TTY:       tty,
 		Reason:    *reason,
-	})
+	}, tty)
+}
+
+// requestAndAttach asks for a session, waits for approval unless it's already given, then connects.
+func requestAndAttach(ctx context.Context, c *client.Client, req api.CreateSessionRequest, tty bool) error {
+	sess, err := c.CreateSession(ctx, req)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "🗝️  Session %s requested: %s/%s → %s\n",
-		sess.ID, sess.Namespace, sess.Pod, strings.Join(sess.Command, " "))
-	fmt.Fprintf(os.Stderr, "   Waiting for a teammate to approve. They can run:\n\n     ostiara approve %s\n\n", sess.ID)
-
-	// 2. Wait
-	sess, err = waitForDecision(ctx, c, sess.ID)
-	if err != nil {
-		return err
+	what := strings.Join(sess.Command, " ")
+	if sess.Action != "" {
+		what = "action " + sess.Action
+	}
+	fmt.Fprintf(os.Stderr, "🗝️  Session %s requested: %s/%s → %s\n", sess.ID, sess.Namespace, sess.Pod, what)
+	if sess.Status == api.StatusPending {
+		fmt.Fprintf(os.Stderr, "   Waiting for a teammate to approve. They can run:\n\n     ostiara approve %s\n\n", sess.ID)
+		if sess, err = waitForDecision(ctx, c, sess.ID); err != nil {
+			return err
+		}
 	}
 	switch sess.Status {
 	case api.StatusApproved:
@@ -79,7 +85,6 @@ func runExec(args []string) error {
 		return fmt.Errorf("session %s is %s", sess.ID, sess.Status)
 	}
 
-	// 3. Connect
 	conn, err := c.Attach(ctx, sess.ID)
 	if err != nil {
 		return err

@@ -27,7 +27,8 @@ const UserHeader = "X-Ostiara-User"
 
 // CreateSessionRequest is what `ostiara exec` or `ostiara port-forward` sends to ask for access.
 type CreateSessionRequest struct {
-	Kind      Kind     `json:"kind,omitempty"` // empty means exec
+	Kind      Kind     `json:"kind,omitempty"`   // empty means exec
+	Action    string   `json:"action,omitempty"` // a predefined command from the broker's catalog
 	Namespace string   `json:"namespace"`
 	Pod       string   `json:"pod"`
 	Container string   `json:"container,omitempty"`
@@ -37,6 +38,8 @@ type CreateSessionRequest struct {
 
 	Port          int `json:"port,omitempty"`          // port-forward: the pod's port
 	WindowSeconds int `json:"windowSeconds,omitempty"` // port-forward: how long the approval lasts
+
+	Redact string `json:"-"` // set by the broker from the action, never by the caller
 }
 
 // Session is one access request and its current state.

@@ -81,5 +81,8 @@ func describeAccess(s api.Session) string {
 	if s.Kind == api.KindPortForward {
 		return fmt.Sprintf("port-forward :%d for %s", s.Port, time.Duration(s.WindowSeconds)*time.Second)
 	}
+	if s.Action != "" {
+		return "action: " + s.Action
+	}
 	return "exec: " + strings.Join(s.Command, " ")
 }

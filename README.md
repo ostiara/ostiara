@@ -36,7 +36,8 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
    shows who can still read Secrets, change workloads or escalate.
 7. ✅ **Session recording**: every shell's output is saved as an asciicast file, its sha256
    goes in the audit log, and `ostiara replay` plays it back for people RBAC allows.
-8. Read-only actions without approval (logs, env, ps), each logged.
+8. ✅ **Predefined actions**: `ostiara run POD ps` runs a shell-free command from a catalog
+   your team controls; low-risk ones need no approval, and `env` hides secret values.
 9. Persistent session storage, HA broker.
 
 ## Layout
@@ -53,6 +54,7 @@ internal/broker/          session store (rules), HTTP API, exec proxy
 internal/audit/           audit events, and the check against Kubernetes audit logs
 internal/doctor/          finds RBAC and setup that get around ostiara
 internal/recording/       records shell sessions as asciicast files
+internal/actions/         predefined actions and output redaction
 internal/notify/          Slack and Teams messages about requests and decisions
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
@@ -62,6 +64,7 @@ deploy/audit-policy.yaml  Kubernetes audit rules for pod access and RBAC changes
 deploy/break-glass.yaml   emergency exec role, bound only during an incident
 deploy/admission-policy.yaml  blocks direct pod access except through the broker
 deploy/recordings-viewer.yaml who may watch session recordings
+deploy/actions.yaml       the catalog of predefined actions
 docs/audit.md             audit logs, `ostiara audit check`, break-glass
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
@@ -141,6 +144,22 @@ ostiara port-forward -n demo -for 30m -reason "check the queue" db-0 15432:5432
 The approver sees the pod, port and window. Any number of connections may use one approval,
 each logged as `forward.opened` / `forward.closed`; when the window ends, open connections
 are cut. The local end only listens on 127.0.0.1.
+
+## Predefined actions
+Most of the time you open a shell to look at the same few things. Predefined actions run
+those directly, with no shell, from a catalog your team controls
+([`deploy/actions.yaml`](deploy/actions.yaml); without it the broker offers `ps`, `df` and `env`):
+```bash
+ostiara actions -n payments          # what can I run here?
+ostiara run -n payments api-7f9c ps  # no approval needed, still audited and recorded
+ostiara run -n payments api-7f9c env # waits for a teammate; secret values are hidden
+```
+Each action has `approval: auto` or `required`. Auto actions skip the teammate, so the broker
+first checks with Kubernetes that you can at least `get pods` in that namespace, and records
+the approver as `ostiara:auto`. The catalog decides the command; callers can only pick a
+name. With `redact: env`, the broker hides the value of any `KEY=VALUE` line whose key looks
+secret (password, token, key, …) and any password inside a URL, before the output reaches your
+screen or the recording. Redaction works by pattern, so keep sensitive actions on `required`.
 
 ## Session recording
 The broker records what every exec session prints into the `ostiara-recordings` volume, as

@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
 
+	"github.com/ostiara/ostiara/internal/actions"
 	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/kube"
 	"github.com/ostiara/ostiara/internal/recording"
@@ -99,6 +100,13 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 	if rec != nil {
 		stdout, stderr = recording.Tee(stdout, rec.Output), recording.Tee(stderr, rec.Output)
 	}
+	// Redact before recording and sending, so neither the screen nor the recording sees secrets.
+	var redactors []*actions.LineRedactor
+	if sess.Redact == actions.RedactEnv {
+		out, errOut := actions.EnvRedactor(stdout), actions.EnvRedactor(stderr)
+		redactors = append(redactors, out, errOut)
+		stdout, stderr = out, errOut
+	}
 	streams := kube.Streams{
 		Stdin:  stdinR,
 		Stdout: stdout,
@@ -124,6 +132,10 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 		Command:   sess.Command,
 		TTY:       sess.TTY,
 	}, streams)
+
+	for _, r := range redactors {
+		r.Flush()
+	}
 
 	// Report the exit code back to the CLI.
 	var exit wire.Exit

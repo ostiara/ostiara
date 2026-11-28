@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/ostiara/ostiara/internal/actions"
 	"github.com/ostiara/ostiara/internal/api"
 	"github.com/ostiara/ostiara/internal/wire"
 )
@@ -61,6 +62,13 @@ func (c *Client) CreateSession(ctx context.Context, req api.CreateSessionRequest
 	var sess api.Session
 	err := c.do(ctx, http.MethodPost, "/v1/sessions", req, &sess)
 	return sess, err
+}
+
+// Actions lists the predefined actions offered in a namespace.
+func (c *Client) Actions(ctx context.Context, namespace string) ([]actions.Action, error) {
+	var list []actions.Action
+	err := c.do(ctx, http.MethodGet, "/v1/actions?namespace="+url.QueryEscape(namespace), nil, &list)
+	return list, err
 }
 
 // Recording downloads a session's recording (asciicast v2). The caller closes it.
