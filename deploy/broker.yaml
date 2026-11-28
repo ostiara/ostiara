@@ -10,18 +10,12 @@ metadata:
   name: ostiara-broker
   namespace: ostiara-system
 ---
-# Only: look up pods, exec into them, and check callers' tokens.
+# Cluster-wide, the broker may only check callers' tokens.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: ostiara-broker
+  name: ostiara-broker-auth
 rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create", "get"]
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
     verbs: ["create"]
@@ -29,15 +23,28 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: ostiara-broker
+  name: ostiara-broker-auth
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: ostiara-broker
+  name: ostiara-broker-auth
 subjects:
   - kind: ServiceAccount
     name: ostiara-broker
     namespace: ostiara-system
+---
+# Exec rights, granted per namespace by deploy/broker-namespace.yaml; never bound cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ostiara-broker-exec
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
 ---
 apiVersion: apps/v1
 kind: Deployment
