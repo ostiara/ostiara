@@ -73,7 +73,8 @@ API server itself, so even a compromised broker can't reuse it. It's off by defa
 because cloud logins (EKS, GKE) issue tokens for the API server, not for ostiara.
 
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
-Never use it in a shared cluster.
+Since anyone could claim any name, it only listens on this machine (`-addr 127.0.0.1:8080`)
+and refuses to start inside a cluster.
 
 ## Which namespaces the broker can reach
 The broker can only exec in namespaces you opt in. Cluster-wide it may just check
@@ -89,7 +90,7 @@ go build -o bin/ostiara ./cmd/ostiara
 kubectl apply -f testdata/demo-pod.yaml
 
 # terminal 1: the broker, trusting OSTIARA_USER
-./bin/ostiara broker -auth header
+./bin/ostiara broker -auth header -addr 127.0.0.1:8080
 
 # terminal 2: alice asks for access
 OSTIARA_USER=alice ./bin/ostiara exec -n demo -reason "debugging" demo-pod
