@@ -25,12 +25,14 @@ const (
 
 	ApprovalAdded = "approval_added" // one approval of several
 	SelfApproved  = "self_approved"  // solo on-call: the requester approved alone
+	Text          = "text"           // a plain message, e.g. audit check findings
 )
 
 // Event is one session change.
 type Event struct {
 	Kind    string
 	Session api.Session
+	Text    string // for Kind Text
 }
 
 // Sender delivers one event to one chat service.
@@ -47,6 +49,14 @@ type Dispatcher struct {
 	log     *slog.Logger
 	timeout time.Duration
 	done    chan struct{}
+	minimal bool
+}
+
+// Minimal leaves pods, commands, ports and reasons out of every message, for channels where
+// that's more than people need to see.
+func (d *Dispatcher) Minimal() *Dispatcher {
+	d.minimal = true
+	return d
 }
 
 func NewDispatcher(log *slog.Logger, senders ...Sender) *Dispatcher {
@@ -63,6 +73,9 @@ func NewDispatcher(log *slog.Logger, senders ...Sender) *Dispatcher {
 
 // Notify queues e and returns at once. When the queue is full the event is dropped and logged.
 func (d *Dispatcher) Notify(e Event) {
+	if d.minimal {
+		e.Session = hideDetails(e.Session)
+	}
 	select {
 	case d.queue <- e:
 	default:
@@ -142,4 +155,13 @@ func httpClient(c *http.Client) *http.Client {
 		return c
 	}
 	return &http.Client{Timeout: 10 * time.Second}
+}
+
+func hideDetails(s api.Session) api.Session {
+	s.Pod, s.Container, s.Port = "(pod hidden)", "", 0
+	s.Command = []string{"(hidden)"}
+	if s.Reason != "" {
+		s.Reason = "(hidden)"
+	}
+	return s
 }

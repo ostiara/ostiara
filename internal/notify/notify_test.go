@@ -140,3 +140,27 @@ func TestDispatcherNeverBlocks(t *testing.T) {
 	close(stuck.release)
 	d.Close()
 }
+
+func TestMinimalHidesDetails(t *testing.T) {
+	srv, got := catcher(t, http.StatusOK)
+	d := NewDispatcher(slog.New(slog.DiscardHandler), Slack{URL: srv.URL}).Minimal()
+	sess := execSession
+	sess.Reason = "INC-9 customer 4471's card data"
+	d.Notify(Event{Kind: Requested, Session: sess})
+	d.Close()
+	text := (*got)[0]["text"].(string)
+	for _, secret := range []string{"api-7f9c", "4471", "exec: sh"} {
+		if strings.Contains(text, secret) {
+			t.Errorf("minimal message still shows %q:\n%s", secret, text)
+		}
+	}
+	if !strings.Contains(text, "alice") || !strings.Contains(text, "ostiara approve 2cd09933") {
+		t.Errorf("minimal message lost who and how to approve:\n%s", text)
+	}
+}
+
+func TestTextMessage(t *testing.T) {
+	if got := slackText(summarize(Event{Kind: Text, Text: "🔎 audit check: 1 self-approved"})); !strings.Contains(got, "1 self-approved") {
+		t.Fatalf("text = %q", got)
+	}
+}

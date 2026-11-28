@@ -16,6 +16,9 @@ type summary struct {
 }
 
 func summarize(e Event) summary {
+	if e.Kind == Text {
+		return summary{Title: e.Text}
+	}
 	s := e.Session
 	target := s.Namespace + "/" + s.Pod
 	access := "exec: " + strings.Join(s.Command, " ")
