@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Writes a kubeconfig that logs in only as a demo ServiceAccount: hack/demo-kubeconfig.sh alice
+# The token is for audience $AUDIENCE (default ostiara), so the API server itself refuses it.
 set -euo pipefail
 
 user="${1:?usage: $0 <alice|bob> [output-file]}"
@@ -7,7 +8,7 @@ out="${2:-bin/kubeconfig-$user}"
 
 server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
 ca="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
-token="$(kubectl create token "$user" -n demo --duration 1h)"
+token="$(kubectl create token "$user" -n demo --duration 1h --audience "${AUDIENCE:-ostiara}")"
 
 mkdir -p "$(dirname "$out")"
 umask 077

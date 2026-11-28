@@ -111,12 +111,14 @@ kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
 # the broker speaks HTTPS; trust the dev CA
 export OSTIARA_BROKER=https://localhost:8080 OSTIARA_CA=bin/tls/ca.crt
 
-# alice and bob each get a kubeconfig with only their own token (valid 1h)
+# alice and bob each get a kubeconfig with a 1h token that only ostiara accepts
 hack/demo-kubeconfig.sh alice
 hack/demo-kubeconfig.sh bob
 
-# alice can't exec directly...
-KUBECONFIG=bin/kubeconfig-alice kubectl exec demo-pod -- sh    # forbidden
+# the API server itself refuses those tokens...
+KUBECONFIG=bin/kubeconfig-alice kubectl get pods -n demo    # Unauthorized
+# ...and alice's role has no pods/exec anyway
+kubectl auth can-i create pods --subresource=exec -n demo --as=system:serviceaccount:demo:alice    # no
 # ...so she asks, and bob approves
 KUBECONFIG=bin/kubeconfig-alice ./bin/ostiara exec -n demo demo-pod
 KUBECONFIG=bin/kubeconfig-bob ./bin/ostiara list
