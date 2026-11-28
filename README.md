@@ -58,6 +58,9 @@ exec plugins such as `aws eks get-token`). The broker asks Kubernetes who it bel
 so nobody can claim to be someone else. The token is only sent over https, or plain
 http to localhost (e.g. `kubectl port-forward`).
 
+Serve the broker over HTTPS with `-tls-cert` and `-tls-key` (PEM files). Without them
+it serves plain HTTP and logs a warning, because tokens would cross the network unencrypted.
+
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Never use it in a shared cluster.
 
