@@ -63,6 +63,29 @@ func (c *Client) CreateSession(ctx context.Context, req api.CreateSessionRequest
 	return sess, err
 }
 
+// Recording downloads a session's recording (asciicast v2). The caller closes it.
+func (c *Client) Recording(ctx context.Context, id string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/sessions/"+url.PathEscape(id)+"/recording", nil)
+	if err != nil {
+		return nil, err
+	}
+	if req.Header, err = c.headers(ctx); err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("can't reach the broker at %s: %w", c.BaseURL, err)
+	}
+	if resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		if msg := readError(resp.Body); msg != "" {
+			return nil, errors.New(msg)
+		}
+		return nil, fmt.Errorf("broker returned %s", resp.Status)
+	}
+	return resp.Body, nil
+}
+
 func (c *Client) GetSession(ctx context.Context, id string) (api.Session, error) {
 	var sess api.Session
 	err := c.do(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(id), nil, &sess)

@@ -23,6 +23,7 @@ import (
 	"github.com/ostiara/ostiara/internal/broker"
 	"github.com/ostiara/ostiara/internal/kube"
 	"github.com/ostiara/ostiara/internal/notify"
+	"github.com/ostiara/ostiara/internal/recording"
 )
 
 // runBroker serves the broker API until interrupted.
@@ -35,6 +36,9 @@ func runBroker(args []string) error {
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file (PEM); serve HTTPS when set with -tls-key")
 	tlsKey := fs.String("tls-key", "", "TLS private key file (PEM)")
 	auditPath := fs.String("audit-log", "-", "where to append audit events as JSON lines: - for stdout, or a file path")
+	recordingsDir := fs.String("recordings-dir", "", "record every exec session into this directory (asciicast files); empty means off")
+	recordInput := fs.Bool("record-input", false, "also record keystrokes, which can include passwords typed at prompts that don't echo")
+	recordingMax := fs.Int64("recording-max-bytes", recording.DefaultLimit, "cap per recording; longer sessions are cut off and marked truncated")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -75,13 +79,20 @@ func runBroker(args []string) error {
 	if err != nil {
 		return err
 	}
+	recordings, err := openRecordings(*recordingsDir, *recordingMax)
+	if err != nil {
+		return err
+	}
+	if recordings == nil {
+		logger.Warn("sessions aren't recorded; set -recordings-dir to keep what was done in each shell")
+	}
 	if notifier != nil {
 		defer notifier.Close()
 	}
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           newBrokerServer(auth, clientset, config, logger, auditLog, notifier).Handler(),
+		Handler:           newBrokerServer(auth, clientset, config, logger, auditLog, notifier, recordings, *recordInput).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig:         tlsConf,
 	}
@@ -170,8 +181,11 @@ func openAudit(path string) (*audit.Log, func(), error) {
 }
 
 func newBrokerServer(auth broker.Authenticator, clientset kubernetes.Interface, config *rest.Config,
-	logger *slog.Logger, auditLog *audit.Log, notifier *notify.Dispatcher) *broker.Server {
+	logger *slog.Logger, auditLog *audit.Log, notifier *notify.Dispatcher, recordings *recording.Store, recordInput bool) *broker.Server {
 	srv := broker.NewServer(broker.NewStore(), auth, clientset, config, logger, auditLog)
+	if recordings != nil {
+		srv.WithRecordings(*recordings, recordInput)
+	}
 	if notifier != nil {
 		srv.WithNotifier(notifier)
 	}
@@ -210,4 +224,21 @@ func newNotifier(logger *slog.Logger) (*notify.Dispatcher, error) {
 	}
 	logger.Info("chat notifications on", "to", strings.Join(names, ","))
 	return notify.NewDispatcher(logger, senders...), nil
+}
+
+// openRecordings checks the recordings directory is writable now, rather than at the first session.
+func openRecordings(dir string, limit int64) (*recording.Store, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("recordings directory: %w", err)
+	}
+	probe, err := os.CreateTemp(dir, ".write-check-*")
+	if err != nil {
+		return nil, fmt.Errorf("recordings directory %s isn't writable: %w", dir, err)
+	}
+	probe.Close()
+	os.Remove(probe.Name())
+	return &recording.Store{Dir: dir, Limit: limit}, nil
 }
