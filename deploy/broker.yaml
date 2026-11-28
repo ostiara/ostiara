@@ -102,3 +102,21 @@ spec:
   ports:
     - port: 8080
       targetPort: 8080
+---
+# Only namespaces labelled ostiara.io/broker-access=true (e.g. your ingress controller's) may reach the broker.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ostiara-broker
+  namespace: ostiara-system
+spec:
+  podSelector:
+    matchLabels: { app: ostiara-broker }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { ostiara.io/broker-access: "true" }
+      ports:
+        - port: 8080
+          protocol: TCP
