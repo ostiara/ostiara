@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,6 +31,12 @@ func runBroker(args []string) error {
 	tlsKey := fs.String("tls-key", "", "TLS private key file (PEM)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	if *authMode == "header" {
+		if err := checkHeaderMode(*addr, os.Getenv("KUBERNETES_SERVICE_HOST") != ""); err != nil {
+			return err
+		}
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -112,4 +119,20 @@ func loadTLS(certFile, keyFile string) (*tls.Config, error) {
 		return nil, fmt.Errorf("load TLS certificate: %w", err)
 	}
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
+}
+
+// checkHeaderMode keeps -auth header on this machine: loopback only, never inside a pod.
+func checkHeaderMode(addr string, inCluster bool) error {
+	if inCluster {
+		return errors.New("-auth header is for local development and won't run inside a cluster; use -auth tokenreview")
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("bad -addr %q: %w", addr, err)
+	}
+	ip := net.ParseIP(host)
+	if host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return nil
+	}
+	return fmt.Errorf("-auth header lets anyone claim any identity, so it only listens on this machine: use -addr 127.0.0.1:8080 (got %q)", addr)
 }
