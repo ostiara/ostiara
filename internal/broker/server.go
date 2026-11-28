@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,6 +41,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions/{id}/approve", s.decide(true))
 	mux.HandleFunc("POST /v1/sessions/{id}/deny", s.decide(false))
 	mux.HandleFunc("GET /v1/sessions/{id}/attach", s.attach)
+	mux.HandleFunc("GET /v1/sessions/{id}/forward", s.forward)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
@@ -61,8 +63,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "namespace and pod are required")
 		return
 	}
-	if len(req.Command) == 0 {
-		req.Command = []string{"sh"}
+	if err := normalize(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// Fail fast so nobody approves a request for a pod that doesn't exist.
@@ -141,6 +144,44 @@ var upgrader = websocket.Upgrader{
 
 // --- helpers ---
 
+// Port-forward approvals last DefaultWindow unless asked otherwise, and never more than MaxWindow.
+const (
+	DefaultWindow = 15 * time.Minute
+	MaxWindow     = time.Hour
+)
+
+// normalize fills defaults and rejects requests that make no sense for their kind.
+func normalize(req *api.CreateSessionRequest) error {
+	switch req.Kind {
+	case "", api.KindExec:
+		req.Kind = api.KindExec
+		if req.Port != 0 || req.WindowSeconds != 0 {
+			return errors.New("port and window are only for port-forward sessions")
+		}
+		if len(req.Command) == 0 {
+			req.Command = []string{"sh"}
+		}
+	case api.KindPortForward:
+		if req.Port < 1 || req.Port > 65535 {
+			return fmt.Errorf("port-forward needs a pod port between 1 and 65535, got %d", req.Port)
+		}
+		if len(req.Command) > 0 || req.TTY || req.Container != "" {
+			return errors.New("command, tty and container are only for exec sessions")
+		}
+		window := time.Duration(req.WindowSeconds) * time.Second
+		if window == 0 {
+			window = DefaultWindow
+		}
+		if window < time.Minute || window > MaxWindow {
+			return fmt.Errorf("port-forward window must be between 1m and %s", MaxWindow)
+		}
+		req.WindowSeconds = int(window / time.Second)
+	default:
+		return fmt.Errorf("unknown session kind %q (want exec or port-forward)", req.Kind)
+	}
+	return nil
+}
+
 // record writes an audit event; a failure is reported in the operational log.
 func (s *Server) record(e audit.Event) error {
 	err := s.audit.Record(e)
@@ -179,7 +220,7 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, ErrSelfApproval), errors.Is(err, ErrNotRequester):
 		status = http.StatusForbidden
-	case errors.Is(err, ErrNotPending), errors.Is(err, ErrNotAttachable):
+	case errors.Is(err, ErrNotPending), errors.Is(err, ErrNotAttachable), errors.Is(err, ErrWrongKind):
 		status = http.StatusConflict
 	}
 	writeError(w, status, err.Error())

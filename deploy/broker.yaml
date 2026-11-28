@@ -33,7 +33,7 @@ subjects:
     name: ostiara-broker
     namespace: ostiara-system
 ---
-# Exec rights, granted per namespace by deploy/broker-namespace.yaml; never bound cluster-wide.
+# Exec and port-forward rights, granted per namespace by deploy/broker-namespace.yaml; never bound cluster-wide.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -43,7 +43,7 @@ rules:
     resources: ["pods"]
     verbs: ["get"]
   - apiGroups: [""]
-    resources: ["pods/exec"]
+    resources: ["pods/exec", "pods/portforward"]
     verbs: ["create", "get"]
 ---
 apiVersion: apps/v1

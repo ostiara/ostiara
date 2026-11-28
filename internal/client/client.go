@@ -93,7 +93,16 @@ func (c *Client) Decide(ctx context.Context, id string, approve bool) (api.Sessi
 
 // Attach opens the live WebSocket for an approved session.
 func (c *Client) Attach(ctx context.Context, id string) (*wire.Conn, error) {
-	u, err := url.Parse(c.BaseURL + "/v1/sessions/" + url.PathEscape(id) + "/attach")
+	ws, err := c.dialSession(ctx, id, "attach")
+	if err != nil {
+		return nil, err
+	}
+	return wire.New(ws), nil
+}
+
+// dialSession opens a WebSocket to /v1/sessions/{id}/{action} with the caller's credentials.
+func (c *Client) dialSession(ctx context.Context, id, action string) (*websocket.Conn, error) {
+	u, err := url.Parse(c.BaseURL + "/v1/sessions/" + url.PathEscape(id) + "/" + action)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +128,16 @@ func (c *Client) Attach(ctx context.Context, id string) (*wire.Conn, error) {
 		}
 		return nil, fmt.Errorf("connecting to session: %w", err)
 	}
-	return wire.New(ws), nil
+	return ws, nil
+}
+
+// Forward opens one connection of an approved port-forward, as a byte stream.
+func (c *Client) Forward(ctx context.Context, id string) (*wire.Raw, error) {
+	ws, err := c.dialSession(ctx, id, "forward")
+	if err != nil {
+		return nil, err
+	}
+	return wire.NewRaw(ws), nil
 }
 
 // do sends one JSON request and decodes the JSON reply into out.

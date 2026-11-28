@@ -18,6 +18,7 @@ var (
 	ErrNotPending    = errors.New("session is no longer pending")
 	ErrNotRequester  = errors.New("only the person who requested this session can use it")
 	ErrNotAttachable = errors.New("session isn't approved, was already used, or has expired")
+	ErrWrongKind     = errors.New("this session is for a different kind of access")
 )
 
 // Store keeps sessions in memory and enforces the approval rules.
@@ -47,6 +48,9 @@ func (s *Store) Create(requester string, req api.CreateSessionRequest) (api.Sess
 	id, err := s.newIDLocked()
 	if err != nil {
 		return api.Session{}, err
+	}
+	if req.Kind == "" {
+		req.Kind = api.KindExec
 	}
 	sess := &api.Session{
 		ID:                   id,
@@ -114,6 +118,12 @@ func (s *Store) Decide(id, decider string, approve bool) (api.Session, error) {
 	}
 	sess.Approver = decider
 	sess.DecidedAt = s.now()
+	if approve {
+		sess.ExpiresAt = sess.DecidedAt.Add(s.attachTTL)
+		if sess.Kind == api.KindPortForward {
+			sess.ExpiresAt = sess.DecidedAt.Add(time.Duration(sess.WindowSeconds) * time.Second)
+		}
+	}
 	return snapshot(sess), nil
 }
 
@@ -131,10 +141,37 @@ func (s *Store) Claim(id, user string) (api.Session, error) {
 	if sess.Requester != user {
 		return api.Session{}, ErrNotRequester
 	}
+	if sess.Kind != api.KindExec {
+		return api.Session{}, ErrWrongKind
+	}
 	if sess.Status != api.StatusApproved {
 		return api.Session{}, ErrNotAttachable
 	}
 	sess.Status = api.StatusUsed
+	return snapshot(sess), nil
+}
+
+// ClaimForward lets the requester open one more connection of an approved port-forward.
+// Unlike Claim it doesn't use the session up: it lasts until ExpiresAt.
+func (s *Store) ClaimForward(id, user string) (api.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, ok := s.sessions[id]
+	if !ok {
+		return api.Session{}, ErrNotFound
+	}
+	s.expireLocked(sess)
+
+	if sess.Requester != user {
+		return api.Session{}, ErrNotRequester
+	}
+	if sess.Kind != api.KindPortForward {
+		return api.Session{}, ErrWrongKind
+	}
+	if sess.Status != api.StatusApproved {
+		return api.Session{}, ErrNotAttachable
+	}
 	return snapshot(sess), nil
 }
 
@@ -147,7 +184,7 @@ func (s *Store) expireLocked(sess *api.Session) {
 			sess.Status = api.StatusExpired
 		}
 	case api.StatusApproved:
-		if now.Sub(sess.DecidedAt) > s.attachTTL {
+		if now.After(sess.ExpiresAt) {
 			sess.Status = api.StatusExpired
 		}
 	}

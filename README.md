@@ -27,9 +27,11 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
    approval; one approval = one connection; requests and approvals expire; audit log.
 3. ✅ **Real identity**: the broker checks each caller's Kubernetes token (TokenReview),
    so EKS/GKE/OIDC/ServiceAccount logins all work; developers get a role without `pods/exec`.
-4. Slack / Teams approvals, routed to the pod's owning team.
-5. Read-only actions without approval (logs, env, ps), each logged.
-6. Session recording, persistent storage, HA broker.
+4. ✅ **Port-forward**: `ostiara port-forward` reaches one pod port after a teammate
+   approves, for a time window (default 15m, max 1h); every connection is logged.
+5. Slack / Teams approvals, routed to the pod's owning team.
+6. Read-only actions without approval (logs, env, ps), each logged.
+7. Session recording, persistent storage, HA broker.
 
 ## Layout
 ```
@@ -87,6 +89,17 @@ tokens, so a compromised broker can't open a shell everywhere. To add a namespac
 kubectl create rolebinding ostiara-broker -n <namespace> \
   --clusterrole=ostiara-broker-exec --serviceaccount=ostiara-system:ostiara-broker
 ```
+
+## Port-forward
+`kubectl port-forward` reaches any port on a pod and isn't covered by NetworkPolicy, so the
+developer role doesn't have it. Ask ostiara instead:
+```bash
+ostiara port-forward -n demo -for 30m -reason "check the queue" db-0 15432:5432
+# once a teammate approves: localhost:15432 → demo/db-0:5432 until the window ends
+```
+The approver sees the pod, port and window. Any number of connections may use one approval,
+each logged as `forward.opened` / `forward.closed`; when the window ends, open connections
+are cut. The local end only listens on 127.0.0.1.
 
 ## Audit and detection
 The broker writes every request, approval, attach and exit as JSON lines

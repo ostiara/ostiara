@@ -24,6 +24,10 @@ func attachLine(ns, pod string, at time.Time) string {
 		at.Format(time.RFC3339Nano), ns, pod)
 }
 
+func forwardLine(ns, pod string, at time.Time) string {
+	return strings.Replace(attachLine(ns, pod, at), `"session.attached"`, `"forward.opened"`, 1)
+}
+
 func TestCheck(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -63,9 +67,20 @@ func TestCheck(t *testing.T) {
 			want:    []string{"unapproved-broker-exec a2"},
 		},
 		{
-			name: "broker port-forward is never approved",
+			name:    "approved port-forward connection",
+			k8s:     []string{k8sLine("a1", broker, "portforward", "demo", "p", t0.Add(30*time.Millisecond), 101)},
+			ostiara: []string{forwardLine("demo", "p", t0)},
+		},
+		{
+			name: "broker port-forward with no approval",
 			k8s:  []string{k8sLine("a1", broker, "portforward", "demo", "p", t0, 101)},
 			want: []string{"unapproved-broker-exec a1"},
+		},
+		{
+			name:    "an exec approval doesn't cover a port-forward",
+			k8s:     []string{k8sLine("a1", broker, "portforward", "demo", "p", t0, 101)},
+			ostiara: []string{attachLine("demo", "p", t0)},
+			want:    []string{"unapproved-broker-exec a1"},
 		},
 		{
 			name: "someone else exec'd",

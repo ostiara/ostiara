@@ -11,7 +11,7 @@ import (
 
 // Finding kinds.
 const (
-	UnapprovedBrokerExec = "unapproved-broker-exec" // the broker's identity opened a shell ostiara never approved
+	UnapprovedBrokerExec = "unapproved-broker-exec" // the broker's identity opened a shell or port-forward ostiara never approved
 	DirectAccess         = "direct-access"          // someone other than the broker exec'd, attached or port-forwarded
 )
 
@@ -46,12 +46,18 @@ type k8sEvent struct {
 // Check reads the Kubernetes API audit log and ostiara's audit log, and reports every
 // shell, attach or port-forward into a pod that no ostiara approval accounts for.
 func Check(k8sLog, ostiaraLog io.Reader, opts CheckOptions) ([]Finding, error) {
-	attaches := map[string][]time.Time{} // "namespace/pod" -> approved attach times
+	// "exec ns/pod" or "portforward ns/pod" -> times ostiara opened an approved connection.
+	approved := map[string][]time.Time{}
 	err := eachLine(ostiaraLog, func(line []byte) {
 		var e Event
-		if json.Unmarshal(line, &e) == nil && e.Stream == Stream && e.Kind == Attached {
-			key := e.Namespace + "/" + e.Pod
-			attaches[key] = append(attaches[key], e.Time)
+		if json.Unmarshal(line, &e) != nil || e.Stream != Stream {
+			return
+		}
+		switch e.Kind {
+		case Attached:
+			approved["exec "+e.Namespace+"/"+e.Pod] = append(approved["exec "+e.Namespace+"/"+e.Pod], e.Time)
+		case ForwardOpened:
+			approved["portforward "+e.Namespace+"/"+e.Pod] = append(approved["portforward "+e.Namespace+"/"+e.Pod], e.Time)
 		}
 	})
 	if err != nil {
@@ -97,7 +103,7 @@ func Check(k8sLog, ostiaraLog io.Reader, opts CheckOptions) ([]Finding, error) {
 			findings = append(findings, f)
 			continue
 		}
-		if a.ObjectRef.Subresource == "exec" && claim(attaches, f.Namespace+"/"+f.Pod, f.Time, opts.Window) {
+		if claim(approved, f.Subresource+" "+f.Namespace+"/"+f.Pod, f.Time, opts.Window) {
 			continue
 		}
 		f.Kind = UnapprovedBrokerExec

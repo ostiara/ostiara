@@ -21,6 +21,9 @@ const (
 	Attached  = "session.attached"
 	Ended     = "session.ended"
 	Refused   = "session.refused" // e.g. self-approval or someone else's session
+
+	ForwardOpened = "forward.opened" // one connection of an approved port-forward
+	ForwardClosed = "forward.closed"
 )
 
 // Event is one line of the audit log.
@@ -29,13 +32,15 @@ type Event struct {
 	Time      time.Time `json:"time"`
 	Kind      string    `json:"event"`
 	Session   string    `json:"session"`
-	Actor     string    `json:"actor"` // who did this: requester, approver, or the refused caller
+	Access    string    `json:"access,omitempty"` // exec or port-forward
+	Actor     string    `json:"actor"`            // who did this: requester, approver, or the refused caller
 	Requester string    `json:"requester,omitempty"`
 	Approver  string    `json:"approver,omitempty"`
 	Namespace string    `json:"namespace,omitempty"`
 	Pod       string    `json:"pod,omitempty"`
 	Container string    `json:"container,omitempty"`
 	Command   []string  `json:"command,omitempty"`
+	Port      int       `json:"port,omitempty"`
 	Reason    string    `json:"reason,omitempty"`
 	ExitCode  *int      `json:"exitCode,omitempty"`
 	Duration  string    `json:"duration,omitempty"`
@@ -47,12 +52,14 @@ func ForSession(kind string, s api.Session) Event {
 	return Event{
 		Kind:      kind,
 		Session:   s.ID,
+		Access:    string(s.Kind),
 		Requester: s.Requester,
 		Approver:  s.Approver,
 		Namespace: s.Namespace,
 		Pod:       s.Pod,
 		Container: s.Container,
 		Command:   s.Command,
+		Port:      s.Port,
 		Reason:    s.Reason,
 	}
 }
