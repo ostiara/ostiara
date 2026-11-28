@@ -21,8 +21,9 @@ The broker writes one JSON object per line to stdout (or `-audit-log /path`), ea
 
 Events: `session.requested`, `session.approved`, `session.denied`, `session.attached`,
 `session.ended` (with `exitCode` and `duration`), and `session.refused` (someone tried to
-approve their own session or use someone else's). If the broker can't write the
-`session.attached` event, it refuses to open the shell.
+approve their own session or use someone else's). Port-forward sessions add
+`forward.opened` and `forward.closed` for every connection, with the `port`. If the broker
+can't write `session.attached` or `forward.opened`, it refuses to open the connection.
 
 **Ship it off the pod.** A log line that only lives in the broker pod can be lost on restart
 or rewritten by whoever controls the broker. Have your log collector (Fluent Bit, Vector,
@@ -49,9 +50,9 @@ ostiara audit check -k8s /var/log/kubernetes/audit.log -ostiara ostiara-audit.lo
 It reports two kinds of finding and exits with status 1 if there are any, so you can run it
 from cron or CI and alert on failure:
 
-- **`unapproved-broker-exec`**: the broker's identity opened a shell with no
-  `session.attached` for that pod within `-window` (default 10s). Treat it as a stolen broker
-  token until proven otherwise.
+- **`unapproved-broker-exec`**: the broker's identity opened a shell or port-forward with
+  no matching `session.attached` or `forward.opened` for that pod within `-window`
+  (default 10s). Treat it as a stolen broker token until proven otherwise.
 - **`direct-access`**: someone other than the broker exec'd, attached or port-forwarded.
   That is either break-glass (below) or someone who still has rights they shouldn't.
 
