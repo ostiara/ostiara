@@ -1,0 +1,16 @@
+# Kubernetes API audit policy: records every way into a pod, and every change to who may do it.
+# Merge these rules into your cluster's policy (kube-apiserver --audit-policy-file).
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: ["RequestReceived"]
+rules:
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+  - level: Metadata
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: rbac.authorization.k8s.io
+        resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  - level: None

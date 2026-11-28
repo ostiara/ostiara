@@ -42,10 +42,14 @@ cmd/ostiara/              the one binary
 internal/api/             JSON types shared by CLI and broker
 internal/wire/            framing for the live session WebSocket
 internal/broker/          session store (rules), HTTP API, exec proxy
+internal/audit/           audit events, and the check against Kubernetes audit logs
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
 deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment, NetworkPolicy
 deploy/broker-namespace.yaml  lets the broker exec in one namespace (copy per namespace)
+deploy/audit-policy.yaml  Kubernetes audit rules for pod access and RBAC changes
+deploy/break-glass.yaml   emergency exec role, bound only during an incident
+docs/audit.md             audit logs, `ostiara audit check`, break-glass
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
 testdata/demo-users.yaml  alice and bob as ServiceAccounts, for trying real identity
@@ -83,6 +87,12 @@ tokens, so a compromised broker can't open a shell everywhere. To add a namespac
 kubectl create rolebinding ostiara-broker -n <namespace> \
   --clusterrole=ostiara-broker-exec --serviceaccount=ostiara-system:ostiara-broker
 ```
+
+## Audit and detection
+The broker writes every request, approval, attach and exit as JSON lines
+(`"stream":"ostiara.audit"`). `ostiara audit check` compares them with the Kubernetes API
+audit log and flags any pod exec, attach or port-forward that no approval explains.
+See [docs/audit.md](docs/audit.md), including the break-glass procedure.
 
 ## Who can reach the broker
 A NetworkPolicy in `deploy/broker.yaml` blocks all in-cluster traffic to the broker,
