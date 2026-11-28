@@ -31,7 +31,7 @@ type Streams struct {
 
 // Stream runs a command in a container until it exits or ctx is cancelled.
 // A non-zero exit returns an error satisfying util/exec.ExitError.
-func Stream(ctx context.Context, clientset *kubernetes.Clientset, config *rest.Config, t Target, s Streams) error {
+func Stream(ctx context.Context, clientset kubernetes.Interface, config *rest.Config, t Target, s Streams) error {
 	req := clientset.CoreV1().RESTClient().
 		Post().
 		Resource("pods").

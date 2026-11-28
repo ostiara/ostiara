@@ -30,7 +30,7 @@ func TestRequireUser(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := NewServer(NewStore(), tc.auth, nil, nil, slog.New(slog.DiscardHandler))
+			srv := NewServer(NewStore(), tc.auth, nil, nil, slog.New(slog.DiscardHandler), nil)
 			req := httptest.NewRequest(http.MethodGet, "/v1/sessions", nil)
 			if tc.header != "" {
 				req.Header.Set(api.UserHeader, tc.header)
