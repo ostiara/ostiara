@@ -36,6 +36,7 @@ type Event struct {
 	Kind      string    `json:"event"`
 	Session   string    `json:"session"`
 	Access    string    `json:"access,omitempty"` // exec or port-forward
+	Action    string    `json:"action,omitempty"` // the predefined action, if one was used
 	Actor     string    `json:"actor"`            // who did this: requester, approver, or the refused caller
 	Requester string    `json:"requester,omitempty"`
 	Approver  string    `json:"approver,omitempty"`
@@ -60,6 +61,7 @@ func ForSession(kind string, s api.Session) Event {
 		Kind:      kind,
 		Session:   s.ID,
 		Access:    string(s.Kind),
+		Action:    s.Action,
 		Requester: s.Requester,
 		Approver:  s.Approver,
 		Namespace: s.Namespace,

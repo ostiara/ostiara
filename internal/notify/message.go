@@ -19,6 +19,9 @@ func summarize(e Event) summary {
 	s := e.Session
 	target := s.Namespace + "/" + s.Pod
 	access := "exec: " + strings.Join(s.Command, " ")
+	if s.Action != "" {
+		access = "action: " + s.Action
+	}
 	if s.Kind == api.KindPortForward {
 		target = fmt.Sprintf("%s:%d", target, s.Port)
 		access = "port-forward for " + (time.Duration(s.WindowSeconds) * time.Second).String()

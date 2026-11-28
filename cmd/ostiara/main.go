@@ -16,6 +16,10 @@ const usage = `ostiara - the doorkeeper for your Kubernetes pods
 Usage:
   ostiara exec [-n namespace] [-c container] [-reason text] POD [-- COMMAND...]
       Ask for access to a pod, wait for a teammate's approval, then connect.
+  ostiara run [-n namespace] [-c container] POD ACTION
+      Run a predefined action (no shell). Some need a teammate's approval, some don't.
+  ostiara actions [-n namespace]
+      List the actions offered in a namespace.
   ostiara port-forward [-n namespace] [-for 15m] [-reason text] POD [LOCAL:]REMOTE
       Ask to reach one pod port; once approved, localhost:LOCAL forwards to it until the window ends.
   ostiara list [-all]
@@ -68,6 +72,10 @@ func run(args []string) error {
 		return runExec(rest)
 	case "port-forward":
 		return runPortForward(rest)
+	case "run":
+		return runAction(rest)
+	case "actions":
+		return listActions(rest)
 	case "list":
 		return runList(rest)
 	case "approve":
