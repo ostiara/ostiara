@@ -20,7 +20,8 @@ The broker writes one JSON object per line to stdout (or `-audit-log /path`), ea
 ```
 
 Events: `session.requested`, `session.approved`, `session.denied`, `session.attached`,
-`session.ended` (with `exitCode` and `duration`), and `session.refused` (someone tried to
+`session.ended` (with `exitCode` and `duration`; sessions started with `ostiara run` also carry
+`action`, and auto-approved ones show the approver `ostiara:auto`), and `session.refused` (someone tried to
 approve their own session or use someone else's, or to view a recording without permission). Port-forward sessions add
 `forward.opened` and `forward.closed` for every connection, with the `port` and, on close,
 `bytesIn` and `bytesOut`. When sessions are recorded, `session.ended` carries

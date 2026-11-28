@@ -1,0 +1,29 @@
+# Predefined actions: shell-free commands people run with `ostiara run POD ACTION`.
+# approval: auto runs at once (still audited, recorded and announced) for anyone who can get pods
+# in that namespace; required waits for a teammate. Without this ConfigMap, the broker offers
+# ps, df and env. The broker picks up edits within a minute or so.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ostiara-actions
+  namespace: ostiara-system
+data:
+  actions.yaml: |
+    actions:
+      - name: ps
+        description: List running processes
+        command: ["ps"]
+        approval: auto
+      - name: df
+        description: Disk usage
+        command: ["df", "-h"]
+        approval: auto
+      - name: env
+        description: Environment variables, with secret-looking values hidden
+        command: ["env"]
+        approval: required
+        redact: env
+      - name: listening
+        description: Open TCP ports
+        command: ["cat", "/proc/net/tcp"]
+        approval: auto
