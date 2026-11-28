@@ -4,6 +4,8 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -26,6 +29,7 @@ type Client struct {
 	User    string
 	Token   func(context.Context) (string, error) // nil: send no bearer token
 	HTTP    *http.Client
+	tls     *tls.Config // nil: trust the system's CAs
 }
 
 func New(baseURL, user string) *Client {
@@ -34,6 +38,23 @@ func New(baseURL, user string) *Client {
 		User:    user,
 		HTTP:    &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// TrustCA makes the client trust only the CA certificates in pemFile, for HTTP and WebSocket alike.
+func (c *Client) TrustCA(pemFile string) error {
+	data, err := os.ReadFile(pemFile)
+	if err != nil {
+		return fmt.Errorf("reading broker CA: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return fmt.Errorf("no PEM certificates found in %s", pemFile)
+	}
+	c.tls = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = c.tls
+	c.HTTP.Transport = transport
+	return nil
 }
 
 func (c *Client) CreateSession(ctx context.Context, req api.CreateSessionRequest) (api.Session, error) {
@@ -87,7 +108,9 @@ func (c *Client) Attach(ctx context.Context, id string) (*wire.Conn, error) {
 		return nil, err
 	}
 
-	ws, resp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
+	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = c.tls
+	ws, resp, err := dialer.DialContext(ctx, u.String(), header)
 	if err != nil {
 		if resp != nil {
 			if msg := readError(resp.Body); msg != "" {

@@ -46,7 +46,10 @@ func runExec(args []string) error {
 	defer stop()
 
 	// 1. Request
-	c := newClient()
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 	sess, err := c.CreateSession(ctx, api.CreateSessionRequest{
 		Namespace: *namespace,
 		Pod:       pod,
