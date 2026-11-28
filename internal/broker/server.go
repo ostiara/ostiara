@@ -221,17 +221,22 @@ func (s *Server) recordRefusal(id, user string, err error) {
 }
 
 func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
-	user, err := s.auth.Authenticate(r)
+	id, ok := s.requireIdentity(w, r)
+	return id.Name, ok
+}
+
+func (s *Server) requireIdentity(w http.ResponseWriter, r *http.Request) (Identity, bool) {
+	id, err := s.auth.Authenticate(r)
 	if errors.Is(err, ErrUnauthenticated) {
 		writeError(w, http.StatusUnauthorized, err.Error())
-		return "", false
+		return Identity{}, false
 	}
 	if err != nil {
 		s.log.Error("authentication failed", "err", err)
 		writeError(w, http.StatusBadGateway, "authentication unavailable")
-		return "", false
+		return Identity{}, false
 	}
-	return user, true
+	return id, true
 }
 
 func writeStoreError(w http.ResponseWriter, err error) {

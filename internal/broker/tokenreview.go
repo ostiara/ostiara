@@ -17,10 +17,10 @@ type TokenReviewAuth struct {
 	Audience string // "": accept any token the API server accepts
 }
 
-func (a TokenReviewAuth) Authenticate(r *http.Request) (string, error) {
+func (a TokenReviewAuth) Authenticate(r *http.Request) (Identity, error) {
 	token, ok := bearerToken(r)
 	if !ok {
-		return "", fmt.Errorf("%w: missing bearer token", ErrUnauthenticated)
+		return Identity{}, fmt.Errorf("%w: missing bearer token", ErrUnauthenticated)
 	}
 
 	review := &authnv1.TokenReview{Spec: authnv1.TokenReviewSpec{Token: token}}
@@ -29,16 +29,16 @@ func (a TokenReviewAuth) Authenticate(r *http.Request) (string, error) {
 	}
 	result, err := a.Reviews.Create(r.Context(), review, metav1.CreateOptions{})
 	if err != nil {
-		return "", fmt.Errorf("token review: %w", err)
+		return Identity{}, fmt.Errorf("token review: %w", err)
 	}
 	if !result.Status.Authenticated || result.Status.User.Username == "" {
-		return "", fmt.Errorf("%w: invalid token", ErrUnauthenticated)
+		return Identity{}, fmt.Errorf("%w: invalid token", ErrUnauthenticated)
 	}
 	// The API server must confirm the audience; an empty list means it didn't check.
 	if a.Audience != "" && !slices.Contains(result.Status.Audiences, a.Audience) {
-		return "", fmt.Errorf("%w: token not issued for audience %q", ErrUnauthenticated, a.Audience)
+		return Identity{}, fmt.Errorf("%w: token not issued for audience %q", ErrUnauthenticated, a.Audience)
 	}
-	return result.Status.User.Username, nil
+	return Identity{Name: result.Status.User.Username, Groups: result.Status.User.Groups}, nil
 }
 
 // bearerToken pulls the token out of "Authorization: Bearer <token>".
