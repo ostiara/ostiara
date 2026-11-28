@@ -45,6 +45,7 @@ internal/broker/          session store (rules), HTTP API, exec proxy
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
 deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment
+deploy/broker-namespace.yaml  lets the broker exec in one namespace (copy per namespace)
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
 testdata/demo-users.yaml  alice and bob as ServiceAccounts, for trying real identity
@@ -59,6 +60,14 @@ http to localhost (e.g. `kubectl port-forward`).
 
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Never use it in a shared cluster.
+
+## Which namespaces the broker can reach
+The broker can only exec in namespaces you opt in. Cluster-wide it may just check
+tokens, so a compromised broker can't open a shell everywhere. To add a namespace:
+```bash
+kubectl create rolebinding ostiara-broker -n <namespace> \
+  --clusterrole=ostiara-broker-exec --serviceaccount=ostiara-system:ostiara-broker
+```
 
 ## Try it locally (dev mode)
 ```bash
@@ -80,8 +89,8 @@ OSTIARA_USER=bob ./bin/ostiara approve <ID>
 ```bash
 docker build -t ostiara:dev .
 kind load docker-image ostiara:dev
-kubectl apply -f deploy/broker.yaml -f deploy/dev-role.yaml
 kubectl apply -f testdata/demo-pod.yaml -f testdata/demo-users.yaml
+kubectl apply -f deploy/broker.yaml -f deploy/broker-namespace.yaml -f deploy/dev-role.yaml
 kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
 
 # alice and bob each get a kubeconfig with only their own token (valid 1h)
