@@ -54,9 +54,11 @@ deploy/break-glass.yaml   emergency exec role, bound only during an incident
 docs/audit.md             audit logs, `ostiara audit check`, break-glass
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
+testdata/demo-web.yaml    a tiny web server on port 8080, for port-forward
 testdata/demo-users.yaml  alice and bob as ServiceAccounts, for trying real identity
 hack/demo-kubeconfig.sh   writes a kubeconfig that logs in as alice or bob
 hack/broker-cert.sh       dev-only CA and broker certificate, as Secret ostiara-broker-tls
+hack/kind-up.sh           kind cluster with Kubernetes API auditing turned on
 ```
 
 ## How callers are identified
@@ -76,7 +78,13 @@ cluster, issue it with your own CA or cert-manager.
 With `-token-audience ostiara`, the broker only accepts tokens issued for ostiara
 (e.g. `kubectl create token <sa> --audience ostiara`). Such a token is rejected by the
 API server itself, so even a compromised broker can't reuse it. It's off by default
-because cloud logins (EKS, GKE) issue tokens for the API server, not for ostiara.
+because cloud logins (EKS, GKE, AKS with Entra ID) issue tokens for the API server, not for ostiara.
+
+**On AKS**, two settings can bypass ostiara entirely. Disable local accounts
+(`--disable-local-accounts`): otherwise `az aks get-credentials --admin` hands out a
+certificate login with full exec rights. And if the cluster uses Azure RBAC for Kubernetes,
+give developers an Azure role without exec (e.g. *Azure Kubernetes Service RBAC Reader*),
+because Azure role assignments decide who can exec there, not `deploy/dev-role.yaml`.
 
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Since anyone could claim any name, it only listens on this machine (`-addr 127.0.0.1:8080`)
@@ -148,9 +156,10 @@ OSTIARA_USER=bob ./bin/ostiara approve <ID>
 
 ## Run it in the cluster with real identity (kind)
 ```bash
+hack/kind-up.sh            # kind cluster with Kubernetes API auditing on (WORKERS=2 for workers)
 docker build -t ostiara:dev .
 kind load docker-image ostiara:dev
-kubectl apply -f testdata/demo-pod.yaml -f testdata/demo-users.yaml
+kubectl apply -f testdata/demo-pod.yaml -f testdata/demo-users.yaml -f testdata/demo-web.yaml
 hack/broker-cert.sh        # throwaway CA + broker certificate, stored as a Secret
 kubectl apply -f deploy/broker.yaml -f deploy/broker-namespace.yaml -f deploy/dev-role.yaml
 kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
