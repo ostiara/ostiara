@@ -21,7 +21,8 @@ The broker writes one JSON object per line to stdout (or `-audit-log /path`), ea
 
 Events: `session.requested`, `session.approved`, `session.denied`, `session.attached`,
 `session.ended` (with `exitCode` and `duration`; sessions started with `ostiara run` also carry
-`action`, and auto-approved ones show the approver `ostiara:auto`), and `session.refused` (someone tried to
+`action`, and auto-approved ones show the approver `ostiara:auto`), `session.approval_added` (one of several
+approvals a rule asks for; events carry `approvers` and `requiredApprovals`), and `session.refused` (someone tried to
 approve their own session or use someone else's, or to view a recording without permission). Port-forward sessions add
 `forward.opened` and `forward.closed` for every connection, with the `port` and, on close,
 `bytesIn` and `bytesOut`. When sessions are recorded, `session.ended` carries
@@ -59,6 +60,8 @@ from cron or CI and alert on failure:
 - **`unapproved-broker-exec`**: the broker's identity opened a shell or port-forward with
   no matching `session.attached` or `forward.opened` for that pod within `-window`
   (default 10s). Treat it as a stolen broker token until proven otherwise.
+- **`self-approved`**: someone approved their own session where a rule allows solo on-call.
+  Nothing went wrong, but each one deserves a look afterwards.
 - **`direct-access`**: someone other than the broker exec'd, attached or port-forwarded.
   That is either break-glass (below) or someone who still has rights they shouldn't.
 

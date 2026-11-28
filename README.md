@@ -38,7 +38,10 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
    goes in the audit log, and `ostiara replay` plays it back for people RBAC allows.
 8. ✅ **Predefined actions**: `ostiara run POD ps` runs a shell-free command from a catalog
    your team controls; low-risk ones need no approval, and `env` hides secret values.
-9. Persistent session storage, HA broker.
+9. ✅ **Approval rules**: per namespace, who may approve, how many approvers (e.g. two SREs
+   for prod), a required ticket, shorter port-forwards, approver sign-in requirements such as
+   MFA, and a solo on-call mode that's flagged for review.
+10. Persistent session storage, HA broker.
 
 ## Layout
 ```
@@ -55,6 +58,7 @@ internal/audit/           audit events, and the check against Kubernetes audit l
 internal/doctor/          finds RBAC and setup that get around ostiara
 internal/recording/       records shell sessions as asciicast files
 internal/actions/         predefined actions and output redaction
+internal/policy/          approval rules: who, how many, tickets, solo on-call
 internal/notify/          Slack and Teams messages about requests and decisions
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
@@ -65,6 +69,7 @@ deploy/break-glass.yaml   emergency exec role, bound only during an incident
 deploy/admission-policy.yaml  blocks direct pod access except through the broker
 deploy/recordings-viewer.yaml who may watch session recordings
 deploy/actions.yaml       the catalog of predefined actions
+deploy/policy.yaml        approval rules per namespace
 docs/audit.md             audit logs, `ostiara audit check`, break-glass
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
@@ -144,6 +149,23 @@ ostiara port-forward -n demo -for 30m -reason "check the queue" db-0 15432:5432
 The approver sees the pod, port and window. Any number of connections may use one approval,
 each logged as `forward.opened` / `forward.closed`; when the window ends, open connections
 are cut. The local end only listens on 127.0.0.1.
+
+## Approval rules
+Without rules, a session needs one approval from anyone but the requester.
+[`deploy/policy.yaml`](deploy/policy.yaml) sets rules per namespace (glob patterns; the first
+match wins):
+
+| Rule | What it does |
+|---|---|
+| `approvals: 2` | needs that many different approvers; one denial ends the request |
+| `approverUsers` / `approverGroups` | only they may approve or deny here |
+| `requireTicket` | `-reason` must mention a ticket or incident (`INC-123`, a link, or your `ticketPattern`) |
+| `maxWindow: 30m` | caps port-forwards here |
+| `approverExtra` | the approver's login must carry these values, e.g. an `amr` claim your OIDC setup maps through so only a recent MFA sign-in can approve |
+| `selfApproval` | solo on-call: you may approve yourself, with a ticket. Chat gets a 🚨 alert and `ostiara audit check` lists it for review |
+
+`ostiara list` shows progress (`pending 1/2`). Predefined actions marked `approval: auto` skip
+these rules; limit those actions' namespaces in the catalog if a namespace should have none.
 
 ## Predefined actions
 Most of the time you open a shell to look at the same few things. Predefined actions run

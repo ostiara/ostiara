@@ -22,6 +22,9 @@ const (
 	Requested = "requested"
 	Approved  = "approved"
 	Denied    = "denied"
+
+	ApprovalAdded = "approval_added" // one approval of several
+	SelfApproved  = "self_approved"  // solo on-call: the requester approved alone
 )
 
 // Event is one session change.

@@ -24,7 +24,8 @@ func fakeReviews(audience string) TokenReviewAuth {
 		if len(want) == 0 {
 			want = []string{"kube-api"}
 		}
-		alice := authnv1.UserInfo{Username: "alice", Groups: []string{"devs", "system:authenticated"}}
+		alice := authnv1.UserInfo{Username: "alice", Groups: []string{"devs", "system:authenticated"},
+			Extra: map[string]authnv1.ExtraValue{"example.com/amr": {"mfa"}}}
 		switch review.Spec.Token {
 		case "good-token", "ostiara-token":
 			tokenAud := map[string]string{"good-token": "kube-api", "ostiara-token": "ostiara"}[review.Spec.Token]
@@ -130,7 +131,8 @@ func TestTokenReviewKeepsGroups(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions", nil)
 	req.Header.Set("Authorization", "Bearer good-token")
 	id, err := fakeReviews("").Authenticate(req)
-	if err != nil || id.Name != "alice" || !slices.Equal(id.Groups, []string{"devs", "system:authenticated"}) {
+	if err != nil || id.Name != "alice" || !slices.Equal(id.Groups, []string{"devs", "system:authenticated"}) ||
+		!slices.Equal(id.Extra["example.com/amr"], []string{"mfa"}) {
 		t.Fatalf("got (%+v, %v): want alice with her groups, for access reviews", id, err)
 	}
 }

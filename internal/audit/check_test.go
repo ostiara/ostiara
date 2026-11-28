@@ -100,6 +100,11 @@ func TestCheck(t *testing.T) {
 			want: []string{"direct-access a1"},
 		},
 		{
+			name:    "self-approved session is flagged for review",
+			ostiara: []string{`{"stream":"ostiara.audit","time":"2026-11-28T12:00:00Z","event":"session.approved","session":"s9","actor":"alice","namespace":"oncall","pod":"p","access":"exec","selfApproved":true}`},
+			want:    []string{"self-approved s9"},
+		},
+		{
 			name: "noise is ignored",
 			k8s: []string{
 				`not json`,

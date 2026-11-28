@@ -138,3 +138,43 @@ func TestRules(t *testing.T) {
 		})
 	}
 }
+
+func TestTwoApprovers(t *testing.T) {
+	s, _ := newTestStore()
+	sess, _ := s.CreateWith("alice", demoRequest, 2)
+	got, err := s.DecideWith(sess.ID, "bob", true, false)
+	if err != nil || got.Status != api.StatusPending || len(got.Approvers) != 1 {
+		t.Fatalf("after one approval: %+v %v, want still pending", got, err)
+	}
+	if _, err := s.DecideWith(sess.ID, "bob", true, false); !errors.Is(err, ErrAlreadyVoted) {
+		t.Fatalf("bob again: %v, want ErrAlreadyVoted", err)
+	}
+	if _, err := s.Claim(sess.ID, "alice"); !errors.Is(err, ErrNotAttachable) {
+		t.Fatalf("attach with half the approvals: %v", err)
+	}
+	got, _ = s.DecideWith(sess.ID, "carol", true, false)
+	if got.Status != api.StatusApproved || got.Approver != "carol" || len(got.Approvers) != 2 {
+		t.Fatalf("after two: %+v", got)
+	}
+}
+
+func TestDenyAfterOneApproval(t *testing.T) {
+	s, _ := newTestStore()
+	sess, _ := s.CreateWith("alice", demoRequest, 2)
+	s.DecideWith(sess.ID, "bob", true, false)
+	if got, _ := s.DecideWith(sess.ID, "carol", false, false); got.Status != api.StatusDenied {
+		t.Fatalf("one denial should end it: %s", got.Status)
+	}
+}
+
+func TestSelfApprovalOnlyWhenAllowed(t *testing.T) {
+	s, _ := newTestStore()
+	sess, _ := s.Create("alice", demoRequest)
+	if _, err := s.DecideWith(sess.ID, "alice", true, false); !errors.Is(err, ErrSelfApproval) {
+		t.Fatalf("not allowed: %v", err)
+	}
+	got, err := s.DecideWith(sess.ID, "alice", true, true)
+	if err != nil || got.Status != api.StatusApproved || !got.SelfApproved {
+		t.Fatalf("allowed: %+v %v, want approved and flagged", got, err)
+	}
+}

@@ -19,6 +19,7 @@ var (
 	ErrNotRequester  = errors.New("only the person who requested this session can use it")
 	ErrNotAttachable = errors.New("session isn't approved, was already used, or has expired")
 	ErrWrongKind     = errors.New("this session is for a different kind of access")
+	ErrAlreadyVoted  = errors.New("you've already approved this session: it needs a different teammate too")
 )
 
 // Store keeps sessions in memory and enforces the approval rules.
@@ -40,8 +41,16 @@ func NewStore() *Store {
 	}
 }
 
-// Create records a new pending session.
+// Create records a new pending session that needs one approval.
 func (s *Store) Create(requester string, req api.CreateSessionRequest) (api.Session, error) {
+	return s.CreateWith(requester, req, 1)
+}
+
+// CreateWith records a new pending session that needs this many distinct approvers.
+func (s *Store) CreateWith(requester string, req api.CreateSessionRequest, approvals int) (api.Session, error) {
+	if approvals < 1 {
+		approvals = 1
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -58,6 +67,7 @@ func (s *Store) Create(requester string, req api.CreateSessionRequest) (api.Sess
 		CreateSessionRequest: req,
 		Status:               api.StatusPending,
 		CreatedAt:            s.now(),
+		RequiredApprovals:    approvals,
 	}
 	s.sessions[id] = sess
 	return snapshot(sess), nil
@@ -95,6 +105,12 @@ func (s *Store) List(status api.Status) []api.Session {
 
 // Decide approves or denies a pending session. The requester can't decide their own.
 func (s *Store) Decide(id, decider string, approve bool) (api.Session, error) {
+	return s.DecideWith(id, decider, approve, false)
+}
+
+// DecideWith records one approval or a denial. A session is approved once enough distinct
+// approvers have said yes; one denial ends it. allowSelf lets the requester approve alone.
+func (s *Store) DecideWith(id, decider string, approve, allowSelf bool) (api.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -104,19 +120,28 @@ func (s *Store) Decide(id, decider string, approve bool) (api.Session, error) {
 	}
 	s.expireLocked(sess)
 
-	if sess.Requester == decider {
+	if sess.Requester == decider && !allowSelf {
 		return api.Session{}, ErrSelfApproval
 	}
 	if sess.Status != api.StatusPending {
 		return api.Session{}, ErrNotPending
 	}
 
-	if approve {
-		sess.Status = api.StatusApproved
-	} else {
-		sess.Status = api.StatusDenied
-	}
 	sess.Approver = decider
+	if !approve {
+		sess.Status = api.StatusDenied
+		sess.DecidedAt = s.now()
+		return snapshot(sess), nil
+	}
+	if slices.Contains(sess.Approvers, decider) {
+		return api.Session{}, ErrAlreadyVoted
+	}
+	sess.Approvers = append(sess.Approvers, decider)
+	if len(sess.Approvers) < max(1, sess.RequiredApprovals) {
+		return snapshot(sess), nil // still pending: more approvers needed
+	}
+	sess.Status = api.StatusApproved
+	sess.SelfApproved = decider == sess.Requester
 	sess.DecidedAt = s.now()
 	if approve {
 		sess.ExpiresAt = sess.DecidedAt.Add(s.attachTTL)
@@ -207,5 +232,6 @@ func (s *Store) newIDLocked() (string, error) {
 func snapshot(sess *api.Session) api.Session {
 	c := *sess
 	c.Command = slices.Clone(sess.Command)
+	c.Approvers = slices.Clone(sess.Approvers)
 	return c
 }

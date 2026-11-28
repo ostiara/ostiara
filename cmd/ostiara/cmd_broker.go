@@ -38,6 +38,7 @@ func runBroker(args []string) error {
 	auditPath := fs.String("audit-log", "-", "where to append audit events as JSON lines: - for stdout, or a file path")
 	recordingsDir := fs.String("recordings-dir", "", "record every exec session into this directory (asciicast files); empty means off")
 	recordInput := fs.Bool("record-input", false, "also record keystrokes, which can include passwords typed at prompts that don't echo")
+	policyFile := fs.String("policy-file", "", "approval rules per namespace (YAML); empty means one approval from anyone but the requester")
 	actionsFile := fs.String("actions-file", "", "catalog of predefined actions (YAML); empty means the built-in ps, df, env")
 	recordingMax := fs.Int64("recording-max-bytes", recording.DefaultLimit, "cap per recording; longer sessions are cut off and marked truncated")
 	if err := fs.Parse(args); err != nil {
@@ -93,6 +94,9 @@ func runBroker(args []string) error {
 
 	brokerSrv, err := newBrokerServer(auth, clientset, config, logger, auditLog, notifier, recordings, *recordInput).WithActions(*actionsFile)
 	if err != nil {
+		return err
+	}
+	if _, err := brokerSrv.WithPolicy(*policyFile); err != nil {
 		return err
 	}
 	handler := brokerSrv.Handler()

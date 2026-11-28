@@ -18,6 +18,7 @@ import (
 	"github.com/ostiara/ostiara/internal/api"
 	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/notify"
+	"github.com/ostiara/ostiara/internal/policy"
 	"github.com/ostiara/ostiara/internal/recording"
 )
 
@@ -33,7 +34,27 @@ type Server struct {
 
 	recordings  *recording.Store // nil: sessions aren't recorded
 	recordInput bool
-	actions     *actionSource // nil: the built-in defaults
+	actions     *reloader[actions.Catalog] // nil: the built-in defaults
+	policy      *reloader[policy.Policy]   // nil: one approval from anyone else
+}
+
+// WithPolicy applies the approval rules at path (empty: one approval from anyone but the
+// requester). It's checked now and re-read whenever the file changes.
+func (s *Server) WithPolicy(path string) (*Server, error) {
+	r, err := newReloader(path, policy.Load, s.log.Warn)
+	if err != nil {
+		return s, err
+	}
+	s.policy = r
+	return s, nil
+}
+
+func (s *Server) rule(namespace string) policy.Rule {
+	if s.policy == nil {
+		p, _ := policy.Load("")
+		return p.For(namespace)
+	}
+	return s.policy.get().For(namespace)
 }
 
 // WithRecordings records every exec session's output, and its keystrokes too if input is set.
@@ -111,6 +132,18 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	auto := action.Approval == actions.Auto
+	rule := s.rule(req.Namespace)
+	if !auto {
+		if err := rule.CheckRequest(req.Reason); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if limit := rule.MaxWindowDuration(); time.Duration(req.WindowSeconds)*time.Second > limit {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("port-forwards in %s are limited to %s", req.Namespace, limit))
+			return
+		}
+	}
 
 	// Fail fast so nobody approves a request for a pod that doesn't exist.
 	_, err := s.clientset.CoreV1().Pods(req.Namespace).Get(r.Context(), req.Pod, metav1.GetOptions{})
@@ -124,7 +157,6 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// An auto action skips the teammate, so the caller must at least be able to read pods there.
-	auto := action.Approval == actions.Auto
 	if auto {
 		allowed, err := s.mayUseNamespace(r.Context(), id, req.Namespace)
 		if err != nil {
@@ -138,7 +170,11 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sess, err := s.store.Create(user, req)
+	approvals := rule.Approvals
+	if auto {
+		approvals = 1
+	}
+	sess, err := s.store.CreateWith(user, req, approvals)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -188,18 +224,35 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 // decide returns the handler for /approve or /deny.
 func (s *Server) decide(approve bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, ok := s.requireUser(w, r)
+		id, ok := s.requireIdentity(w, r)
 		if !ok {
 			return
 		}
-		sess, err := s.store.Decide(r.PathValue("id"), user, approve)
+		user, sessionID := id.Name, r.PathValue("id")
+		current, err := s.store.Get(sessionID)
 		if err != nil {
-			s.recordRefusal(r.PathValue("id"), user, err)
+			writeStoreError(w, err)
+			return
+		}
+		rule := s.rule(current.Namespace)
+		if err := rule.CheckApprover(policy.Identity{Name: id.Name, Groups: id.Groups, Extra: id.Extra}, current.Requester); err != nil {
+			s.recordRefusal(sessionID, user, err)
+			writeStoreError(w, err)
+			return
+		}
+		sess, err := s.store.DecideWith(sessionID, user, approve, rule.SelfApproval)
+		if err != nil {
+			s.recordRefusal(sessionID, user, err)
 			writeStoreError(w, err)
 			return
 		}
 		kind, announced := audit.Denied, notify.Denied
-		if approve {
+		switch {
+		case approve && sess.Status == api.StatusPending:
+			kind, announced = audit.ApprovalAdded, notify.ApprovalAdded
+		case approve && sess.SelfApproved:
+			kind, announced = audit.Approved, notify.SelfApproved
+		case approve:
 			kind, announced = audit.Approved, notify.Approved
 		}
 		e := audit.ForSession(kind, sess)
@@ -267,7 +320,8 @@ func (s *Server) record(e audit.Event) error {
 // recordRefusal audits the attempts that matter for security: deciding your own
 // session, or using someone else's.
 func (s *Server) recordRefusal(id, user string, err error) {
-	if errors.Is(err, ErrSelfApproval) || errors.Is(err, ErrNotRequester) {
+	if errors.Is(err, ErrSelfApproval) || errors.Is(err, ErrNotRequester) ||
+		errors.Is(err, policy.ErrSelf) || errors.Is(err, policy.ErrNotApprover) || errors.Is(err, ErrAlreadyVoted) {
 		s.record(audit.Event{Kind: audit.Refused, Session: id, Actor: user, Error: err.Error()})
 	}
 }
@@ -296,9 +350,9 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, ErrSelfApproval), errors.Is(err, ErrNotRequester):
+	case errors.Is(err, ErrSelfApproval), errors.Is(err, ErrNotRequester), errors.Is(err, policy.ErrSelf), errors.Is(err, policy.ErrNotApprover):
 		status = http.StatusForbidden
-	case errors.Is(err, ErrNotPending), errors.Is(err, ErrNotAttachable), errors.Is(err, ErrWrongKind):
+	case errors.Is(err, ErrNotPending), errors.Is(err, ErrNotAttachable), errors.Is(err, ErrWrongKind), errors.Is(err, ErrAlreadyVoted):
 		status = http.StatusConflict
 	}
 	writeError(w, status, err.Error())
