@@ -31,8 +31,11 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
    approves, for a time window (default 15m, max 1h); every connection is logged.
 5. 🚧 **Slack / Teams**: ✅ notifications of requests and decisions; next, routing to the
    pod's owning team, and approve buttons that still require the approver's cluster login.
-6. Read-only actions without approval (logs, env, ps), each logged.
-7. Session recording, persistent storage, HA broker.
+6. ✅ **No way around it**: an admission policy blocks direct exec, attach, port-forward and
+   `kubectl debug` in protected namespaces, whatever RBAC or cloud IAM allows; `ostiara doctor`
+   shows who can still read Secrets, change workloads or escalate.
+7. Read-only actions without approval (logs, env, ps), each logged.
+8. Session recording, persistent storage, HA broker.
 
 ## Layout
 ```
@@ -46,6 +49,7 @@ internal/api/             JSON types shared by CLI and broker
 internal/wire/            framing for the live session WebSocket
 internal/broker/          session store (rules), HTTP API, exec proxy
 internal/audit/           audit events, and the check against Kubernetes audit logs
+internal/doctor/          finds RBAC and setup that get around ostiara
 internal/notify/          Slack and Teams messages about requests and decisions
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
@@ -53,6 +57,7 @@ deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment, N
 deploy/broker-namespace.yaml  lets the broker exec in one namespace (copy per namespace)
 deploy/audit-policy.yaml  Kubernetes audit rules for pod access and RBAC changes
 deploy/break-glass.yaml   emergency exec role, bound only during an incident
+deploy/admission-policy.yaml  blocks direct pod access except through the broker
 docs/audit.md             audit logs, `ostiara audit check`, break-glass
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
@@ -91,6 +96,28 @@ because Azure role assignments decide who can exec there, not `deploy/dev-role.y
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Since anyone could claim any name, it only listens on this machine (`-addr 127.0.0.1:8080`)
 and refuses to start inside a cluster.
+
+## No way around it
+RBAC only ever adds permissions, so ostiara can't take exec away from anyone who has it
+through another role, such as Kubernetes' built-in `edit` or `admin`, or a cloud IAM role.
+An admission policy can: [`deploy/admission-policy.yaml`](deploy/admission-policy.yaml)
+refuses direct exec, attach, port-forward and `kubectl debug` in every namespace labelled
+`ostiara.io/enforce=true`, for everyone except the broker, cluster admins included.
+```bash
+kubectl apply -f deploy/admission-policy.yaml       # needs Kubernetes 1.30+
+kubectl label namespace payments ostiara.io/enforce=true
+```
+Set `validationActions: [Warn, Audit]` in the binding first to see who would be blocked
+without blocking anyone. If its ConfigMap `ostiara-admission` goes missing, the policy
+blocks everyone, the broker included, rather than no one. Break-glass users and groups go
+in that ConfigMap (see [docs/audit.md](docs/audit.md)).
+
+The policy only covers getting into pods. `ostiara doctor` lists, from RBAC, who can still
+**read Secrets**, **create or change workloads** (which can mount Secrets or run any
+command), or **grant themselves more**, and checks the policy is installed, blocking and
+covering every namespace the broker serves. Run it as an admin; `-strict` makes it exit 1
+for CI. It can't see cloud IAM (GKE IAM roles, EKS access entries, Azure RBAC), so it reminds
+you which to check on that platform.
 
 ## Which namespaces the broker can reach
 The broker can only exec in namespaces you opt in. Cluster-wide it may just check
@@ -179,6 +206,8 @@ kind load docker-image ostiara:dev
 kubectl apply -f testdata/demo-pod.yaml -f testdata/demo-users.yaml -f testdata/demo-web.yaml
 hack/broker-cert.sh        # throwaway CA + broker certificate, stored as a Secret
 kubectl apply -f deploy/broker.yaml -f deploy/broker-namespace.yaml -f deploy/dev-role.yaml
+kubectl apply -f deploy/admission-policy.yaml && kubectl label namespace demo ostiara.io/enforce=true
+ostiara doctor             # as the admin: what can still get around ostiara?
 kubectl -n ostiara-system port-forward svc/ostiara-broker 8080:8080
 
 # the broker speaks HTTPS; trust the dev CA
