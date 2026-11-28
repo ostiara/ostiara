@@ -1,0 +1,11 @@
+# Who may watch session recordings with `ostiara replay`. Cluster admins already can; grant others:
+#   kubectl create clusterrolebinding ostiara-recordings-viewer-<who> \
+#     --clusterrole=ostiara-recordings-viewer --group=<security-team>
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ostiara-recordings-viewer
+rules:
+  - apiGroups: ["ostiara.io"]
+    resources: ["sessions/recording"]
+    verbs: ["get"]
