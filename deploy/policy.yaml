@@ -1,0 +1,21 @@
+# Approval rules per namespace. The first rule whose namespaces match wins; otherwise default.
+# Without this ConfigMap: one approval from anyone but the requester. The broker picks up edits.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ostiara-policy
+  namespace: ostiara-system
+data:
+  policy.yaml: |
+    default:
+      approvals: 1
+    rules:
+      - namespaces: ["prod", "prod-*"]
+        approvals: 2              # two different teammates
+        approverGroups: ["sre"]   # only they may approve (or deny)
+        requireTicket: true       # -reason must mention e.g. INC-123 or a link
+        maxWindow: 30m            # shorter port-forwards
+        # approverExtra:          # e.g. require a recent MFA sign-in, if your OIDC setup maps amr
+        #   example.com/amr: ["mfa"]
+      - namespaces: ["oncall-*"]
+        selfApproval: true        # solo on-call: you may approve yourself, with a ticket; flagged for review

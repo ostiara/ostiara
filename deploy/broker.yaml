@@ -78,6 +78,7 @@ spec:
             - -tls-key=/etc/ostiara/tls/tls.key
             - -recordings-dir=/var/lib/ostiara/recordings
             - -actions-file=/etc/ostiara/actions/actions.yaml # built-in defaults until deploy/actions.yaml is applied
+            - -policy-file=/etc/ostiara/policy/policy.yaml    # one approval from anyone else until deploy/policy.yaml is applied
           env: # chat notifications, off unless Secret ostiara-notify has these keys
             - name: OSTIARA_SLACK_WEBHOOK_URL
               valueFrom: { secretKeyRef: { name: ostiara-notify, key: slack-webhook-url, optional: true } }
@@ -105,6 +106,9 @@ spec:
             - name: actions
               mountPath: /etc/ostiara/actions
               readOnly: true
+            - name: policy
+              mountPath: /etc/ostiara/policy
+              readOnly: true
       volumes:
         - name: tls
           secret:
@@ -115,6 +119,10 @@ spec:
         - name: actions
           configMap:
             name: ostiara-actions
+            optional: true
+        - name: policy
+          configMap:
+            name: ostiara-policy
             optional: true
 ---
 # Session recordings. Ship them somewhere the broker can't change for long-term keeping.
