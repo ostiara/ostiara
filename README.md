@@ -60,6 +60,8 @@ http to localhost (e.g. `kubectl port-forward`).
 
 Serve the broker over HTTPS with `-tls-cert` and `-tls-key` (PEM files). Without them
 it serves plain HTTP and logs a warning, because tokens would cross the network unencrypted.
+If the broker's certificate comes from your own CA, point the CLI at it with
+`OSTIARA_CA=/path/to/ca.pem`; the CLI then trusts only that CA for the broker.
 
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Never use it in a shared cluster.

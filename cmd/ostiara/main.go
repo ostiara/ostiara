@@ -21,11 +21,12 @@ Usage:
   ostiara approve SESSION_ID
   ostiara deny SESSION_ID
       Decide on a teammate's request. You can't decide on your own.
-  ostiara broker [-addr :8080] [-kubeconfig path]
+  ostiara broker [-addr :8080] [-kubeconfig path] [-tls-cert file -tls-key file]
       Run the broker service (the only thing allowed to exec into pods).
 
 Environment:
   OSTIARA_BROKER   broker URL (default http://localhost:8080)
+  OSTIARA_CA       PEM file with the CA that signed the broker's certificate
   OSTIARA_USER     who you are (default $USER). DEV ONLY: not authenticated yet.
 `
 
@@ -74,8 +75,8 @@ func run(args []string) error {
 	}
 }
 
-// newClient builds a broker client from OSTIARA_BROKER, OSTIARA_USER and your kubeconfig token.
-func newClient() *client.Client {
+// newClient builds a broker client from OSTIARA_BROKER, OSTIARA_CA, OSTIARA_USER and your kubeconfig token.
+func newClient() (*client.Client, error) {
 	broker := os.Getenv("OSTIARA_BROKER")
 	if broker == "" {
 		broker = "http://localhost:8080"
@@ -85,11 +86,16 @@ func newClient() *client.Client {
 		user = os.Getenv("USER")
 	}
 	c := client.New(broker, user)
+	if ca := os.Getenv("OSTIARA_CA"); ca != "" {
+		if err := c.TrustCA(ca); err != nil {
+			return nil, err
+		}
+	}
 	token, err := kube.TokenSource("")
 	if err != nil {
 		c.Token = func(context.Context) (string, error) { return "", err }
 	} else {
 		c.Token = token
 	}
-	return c
+	return c, nil
 }

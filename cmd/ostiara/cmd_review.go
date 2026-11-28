@@ -24,7 +24,11 @@ func runList(args []string) error {
 	if *all {
 		status = ""
 	}
-	sessions, err := newClient().ListSessions(context.Background(), status)
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+	sessions, err := c.ListSessions(context.Background(), status)
 	if err != nil {
 		return err
 	}
@@ -51,7 +55,11 @@ func runDecide(args []string, approve bool) error {
 	if len(args) != 1 {
 		return errors.New("usage: ostiara approve|deny SESSION_ID")
 	}
-	sess, err := newClient().Decide(context.Background(), args[0], approve)
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+	sess, err := c.Decide(context.Background(), args[0], approve)
 	if err != nil {
 		return err
 	}
