@@ -67,6 +67,11 @@ If the broker's certificate comes from your own CA, point the CLI at it with
 (keys `tls.crt` and `tls.key`), so the broker won't start until it exists. In a real
 cluster, issue it with your own CA or cert-manager.
 
+With `-token-audience ostiara`, the broker only accepts tokens issued for ostiara
+(e.g. `kubectl create token <sa> --audience ostiara`). Such a token is rejected by the
+API server itself, so even a compromised broker can't reuse it. It's off by default
+because cloud logins (EKS, GKE) issue tokens for the API server, not for ostiara.
+
 For quick local hacking, `ostiara broker -auth header` trusts `OSTIARA_USER` instead.
 Never use it in a shared cluster.
 
