@@ -44,7 +44,7 @@ internal/wire/            framing for the live session WebSocket
 internal/broker/          session store (rules), HTTP API, exec proxy
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
-deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment
+deploy/broker.yaml        in-cluster broker: ServiceAccount, RBAC, Deployment, NetworkPolicy
 deploy/broker-namespace.yaml  lets the broker exec in one namespace (copy per namespace)
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
@@ -82,6 +82,16 @@ tokens, so a compromised broker can't open a shell everywhere. To add a namespac
 ```bash
 kubectl create rolebinding ostiara-broker -n <namespace> \
   --clusterrole=ostiara-broker-exec --serviceaccount=ostiara-system:ostiara-broker
+```
+
+## Who can reach the broker
+A NetworkPolicy in `deploy/broker.yaml` blocks all in-cluster traffic to the broker,
+except from namespaces you label (for example your ingress controller's).
+Admins can still reach it with `kubectl port-forward`, which NetworkPolicy doesn't
+cover; the developer role has no port-forward rights. This needs a network plugin
+that enforces NetworkPolicy (kind's default does; so do Calico and Cilium).
+```bash
+kubectl label namespace <namespace> ostiara.io/broker-access=true
 ```
 
 ## Try it locally (dev mode)
