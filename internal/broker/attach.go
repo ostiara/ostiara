@@ -19,6 +19,10 @@ import (
 
 // attach proxies an approved session: CLI ⇄ WebSocket ⇄ broker ⇄ exec ⇄ container.
 func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
+	if !upgrader.CheckOrigin(r) {
+		writeError(w, http.StatusForbidden, "attach is only for the ostiara CLI, not browsers")
+		return // before Claim, so a refused attempt doesn't use up the approval
+	}
 	user, ok := s.requireUser(w, r)
 	if !ok {
 		return
