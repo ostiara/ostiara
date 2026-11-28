@@ -46,7 +46,7 @@ func runList(args []string) error {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s/%s\t%s\t%s\t%s\t%s\n",
 			s.ID, s.Requester, s.Namespace, s.Pod, describeAccess(s),
-			reason, s.Status, time.Since(s.CreatedAt).Round(time.Second))
+			reason, statusText(s), time.Since(s.CreatedAt).Round(time.Second))
 	}
 	return tw.Flush()
 }
@@ -64,6 +64,11 @@ func runDecide(args []string, approve bool) error {
 		return err
 	}
 	switch {
+	case approve && sess.Status == api.StatusPending:
+		fmt.Printf("👍 Your approval is in (%d of %d). Session %s needs %d more teammate(s).\n",
+			len(sess.Approvers), sess.RequiredApprovals, sess.ID, sess.RequiredApprovals-len(sess.Approvers))
+	case approve && sess.SelfApproved:
+		fmt.Printf("🚨 You approved your own session %s (solo on-call). It's flagged for review.\n", sess.ID)
 	case approve && sess.Kind == api.KindPortForward:
 		fmt.Printf("✅ Approved session %s: %s can now forward to %s/%s:%d until %s.\n",
 			sess.ID, sess.Requester, sess.Namespace, sess.Pod, sess.Port, sess.ExpiresAt.Local().Format("15:04"))
@@ -85,4 +90,15 @@ func describeAccess(s api.Session) string {
 		return "action: " + s.Action
 	}
 	return "exec: " + strings.Join(s.Command, " ")
+}
+
+// statusText adds progress for sessions that need several approvals, and flags self-approval.
+func statusText(s api.Session) string {
+	switch {
+	case s.Status == api.StatusPending && s.RequiredApprovals > 1:
+		return fmt.Sprintf("pending %d/%d", len(s.Approvers), s.RequiredApprovals)
+	case s.SelfApproved:
+		return string(s.Status) + " (self-approved)"
+	}
+	return string(s.Status)
 }

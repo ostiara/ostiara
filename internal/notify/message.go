@@ -39,6 +39,18 @@ func summarize(e Event) summary {
 			Facts:  append(facts, [2]string{"Reason", reason}, [2]string{"Session", s.ID}),
 			Footer: fmt.Sprintf("ostiara approve %s   (or: ostiara deny %s)", s.ID, s.ID),
 		}
+	case ApprovalAdded:
+		return summary{
+			Title: fmt.Sprintf("👍 %s approved %s's access to %s (%d of %d approvals so far)",
+				s.Approver, s.Requester, target, len(s.Approvers), s.RequiredApprovals),
+			Facts:  append(facts, [2]string{"Session", s.ID}),
+			Footer: fmt.Sprintf("ostiara approve %s", s.ID),
+		}
+	case SelfApproved:
+		return summary{
+			Title: fmt.Sprintf("🚨 %s approved their OWN access to %s (solo on-call). Review this session.", s.Requester, target),
+			Facts: append(facts, [2]string{"Reason", reason}, [2]string{"Session", s.ID}),
+		}
 	case Approved:
 		until := "within 5 minutes, once"
 		if s.Kind == api.KindPortForward {

@@ -3,9 +3,6 @@ package broker
 import (
 	"context"
 	"net/http"
-	"os"
-	"sync"
-	"time"
 
 	authzv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,46 +14,14 @@ import (
 // AutoApprover is who approves actions whose catalog entry says approval: auto.
 const AutoApprover = "ostiara:auto"
 
-// actionSource reloads the catalog file when it changes (a mounted ConfigMap updates in place).
-type actionSource struct {
-	path    string
-	mu      sync.Mutex
-	current actions.Catalog
-	mtime   time.Time
-	log     func(msg string, args ...any)
-}
-
-func (a *actionSource) catalog() actions.Catalog {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.path == "" {
-		return a.current
-	}
-	info, err := os.Stat(a.path)
-	if err != nil || info.ModTime().Equal(a.mtime) {
-		return a.current
-	}
-	c, err := actions.Load(a.path)
-	if err != nil {
-		a.log("actions catalog not reloaded; keeping the last good one", "err", err)
-		return a.current
-	}
-	a.current, a.mtime = c, info.ModTime()
-	return a.current
-}
-
 // WithActions offers the catalog at path (empty: the built-in defaults). It's checked now and
 // re-read whenever the file changes.
 func (s *Server) WithActions(path string) (*Server, error) {
-	c, err := actions.Load(path)
+	r, err := newReloader(path, actions.Load, s.log.Warn)
 	if err != nil {
 		return s, err
 	}
-	src := &actionSource{path: path, current: c, log: s.log.Warn}
-	if info, err := os.Stat(path); err == nil {
-		src.mtime = info.ModTime()
-	}
-	s.actions = src
+	s.actions = r
 	return s, nil
 }
 
@@ -64,7 +29,7 @@ func (s *Server) catalog() actions.Catalog {
 	if s.actions == nil {
 		return actions.Defaults
 	}
-	return s.actions.catalog()
+	return s.actions.get()
 }
 
 // listActions shows what can be run in a namespace: GET /v1/actions?namespace=ns.

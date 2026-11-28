@@ -23,6 +23,8 @@ const (
 	Ended     = "session.ended"
 	Refused   = "session.refused" // e.g. self-approval or someone else's session
 
+	ApprovalAdded = "session.approval_added" // one of several approvals a session needs
+
 	ForwardOpened = "forward.opened" // one connection of an approved port-forward
 	ForwardClosed = "forward.closed"
 
@@ -40,6 +42,9 @@ type Event struct {
 	Actor     string    `json:"actor"`            // who did this: requester, approver, or the refused caller
 	Requester string    `json:"requester,omitempty"`
 	Approver  string    `json:"approver,omitempty"`
+	Approvers []string  `json:"approvers,omitempty"`
+	Required  int       `json:"requiredApprovals,omitempty"`
+	Self      bool      `json:"selfApproved,omitempty"`
 	Namespace string    `json:"namespace,omitempty"`
 	Pod       string    `json:"pod,omitempty"`
 	Container string    `json:"container,omitempty"`
@@ -64,6 +69,9 @@ func ForSession(kind string, s api.Session) Event {
 		Action:    s.Action,
 		Requester: s.Requester,
 		Approver:  s.Approver,
+		Approvers: s.Approvers,
+		Required:  s.RequiredApprovals,
+		Self:      s.SelfApproved,
 		Namespace: s.Namespace,
 		Pod:       s.Pod,
 		Container: s.Container,

@@ -13,6 +13,7 @@ import (
 const (
 	UnapprovedBrokerExec = "unapproved-broker-exec" // the broker's identity opened a shell or port-forward ostiara never approved
 	DirectAccess         = "direct-access"          // someone other than the broker exec'd, attached or port-forwarded
+	SelfApproved         = "self-approved"          // solo on-call: someone approved their own session; review it
 )
 
 // Finding is one pod access in the Kubernetes audit log that needs a human to look at it.
@@ -48,10 +49,15 @@ type k8sEvent struct {
 func Check(k8sLog, ostiaraLog io.Reader, opts CheckOptions) ([]Finding, error) {
 	// "exec ns/pod" or "portforward ns/pod" -> times ostiara opened an approved connection.
 	approved := map[string][]time.Time{}
+	var selfApproved []Finding
 	err := eachLine(ostiaraLog, func(line []byte) {
 		var e Event
 		if json.Unmarshal(line, &e) != nil || e.Stream != Stream {
 			return
+		}
+		if e.Kind == Approved && e.Self {
+			selfApproved = append(selfApproved, Finding{Kind: SelfApproved, Time: e.Time, User: e.Actor,
+				Namespace: e.Namespace, Pod: e.Pod, Subresource: cmpOr(e.Action, e.Access), AuditID: e.Session})
 		}
 		switch e.Kind {
 		case Attached:
@@ -109,7 +115,14 @@ func Check(k8sLog, ostiaraLog io.Reader, opts CheckOptions) ([]Finding, error) {
 		f.Kind = UnapprovedBrokerExec
 		findings = append(findings, f)
 	}
-	return findings, nil
+	return append(findings, selfApproved...), nil
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // claim uses up the approved attach closest to t, if one is within window.

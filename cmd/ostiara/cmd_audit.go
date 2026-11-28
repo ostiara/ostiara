@@ -13,7 +13,7 @@ import (
 )
 
 // errFindings makes `ostiara audit check` exit non-zero, so cron jobs and CI can alert on it.
-var errFindings = errors.New("found pod access that no ostiara approval accounts for")
+var errFindings = errors.New("found pod access that needs review")
 
 // runAudit dispatches `ostiara audit <subcommand>`.
 func runAudit(args []string) error {

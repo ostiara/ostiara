@@ -53,6 +53,10 @@ type Session struct {
 	CreatedAt time.Time `json:"createdAt"`
 	DecidedAt time.Time `json:"decidedAt,omitzero"`
 	ExpiresAt time.Time `json:"expiresAt,omitzero"` // set on approval: deadline to attach, or end of a port-forward
+
+	RequiredApprovals int      `json:"requiredApprovals,omitempty"` // distinct approvers needed
+	Approvers         []string `json:"approvers,omitempty"`         // who has approved so far
+	SelfApproved      bool     `json:"selfApproved,omitempty"`      // the requester approved alone (solo on-call)
 }
 
 // ErrorResponse is the body the broker returns on failure.

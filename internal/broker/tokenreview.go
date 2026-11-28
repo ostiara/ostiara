@@ -38,7 +38,11 @@ func (a TokenReviewAuth) Authenticate(r *http.Request) (Identity, error) {
 	if a.Audience != "" && !slices.Contains(result.Status.Audiences, a.Audience) {
 		return Identity{}, fmt.Errorf("%w: token not issued for audience %q", ErrUnauthenticated, a.Audience)
 	}
-	return Identity{Name: result.Status.User.Username, Groups: result.Status.User.Groups}, nil
+	extra := map[string][]string{}
+	for k, v := range result.Status.User.Extra {
+		extra[k] = v
+	}
+	return Identity{Name: result.Status.User.Username, Groups: result.Status.User.Groups, Extra: extra}, nil
 }
 
 // bearerToken pulls the token out of "Authorization: Bearer <token>".

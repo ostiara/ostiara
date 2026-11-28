@@ -15,6 +15,7 @@ var ErrUnauthenticated = errors.New("unauthenticated")
 type Identity struct {
 	Name   string
 	Groups []string
+	Extra  map[string][]string // e.g. claims your OIDC setup maps through, such as amr
 }
 
 // Authenticator works out which user sent a request.
