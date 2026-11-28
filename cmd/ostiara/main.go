@@ -25,6 +25,8 @@ Usage:
       Decide on a teammate's request. You can't decide on your own.
   ostiara broker [-addr :8080] [-kubeconfig path] [-tls-cert file -tls-key file] [-audit-log path]
       Run the broker service (the only thing allowed to exec into pods).
+  ostiara doctor [-all] [-strict]
+      Show who can still get around ostiara (RBAC, admission policy, platform), as an admin.
   ostiara audit check -k8s FILE -ostiara FILE
       Flag every pod exec/attach/port-forward that no ostiara approval explains.
 
@@ -74,6 +76,8 @@ func run(args []string) error {
 		return runBroker(rest)
 	case "audit":
 		return runAudit(rest)
+	case "doctor":
+		return runDoctor(rest)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
