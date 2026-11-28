@@ -67,6 +67,7 @@ spec:
           args:
             - -addr=:8080
             - -auth=tokenreview
+            - -token-audience=ostiara # drop for EKS/GKE logins, whose tokens are for the API server
             - -tls-cert=/etc/ostiara/tls/tls.crt
             - -tls-key=/etc/ostiara/tls/tls.key
           ports:
