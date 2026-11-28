@@ -134,9 +134,9 @@ func (s *Server) decide(approve bool) http.HandlerFunc {
 	}
 }
 
-// Our client is a CLI using no cookies, so any origin is fine.
+// Only the CLI attaches, and it sends no Origin; browsers always do, so refuse them.
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool { return r.Header.Get("Origin") == "" },
 }
 
 // --- helpers ---
