@@ -17,6 +17,7 @@ import (
 	"github.com/ostiara/ostiara/internal/api"
 	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/notify"
+	"github.com/ostiara/ostiara/internal/recording"
 )
 
 // Server is the broker's HTTP API.
@@ -28,6 +29,16 @@ type Server struct {
 	log       *slog.Logger
 	audit     *audit.Log
 	notifier  Notifier
+
+	recordings  *recording.Store // nil: sessions aren't recorded
+	recordInput bool
+}
+
+// WithRecordings records every exec session's output, and its keystrokes too if input is set.
+func (s *Server) WithRecordings(store recording.Store, input bool) *Server {
+	s.recordings = &store
+	s.recordInput = input
+	return s
 }
 
 // Notifier tells the team's chat about requests and decisions. Notify must not block.
@@ -61,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions/{id}/deny", s.decide(false))
 	mux.HandleFunc("GET /v1/sessions/{id}/attach", s.attach)
 	mux.HandleFunc("GET /v1/sessions/{id}/forward", s.forward)
+	mux.HandleFunc("GET /v1/sessions/{id}/recording", s.recording)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
 	})
@@ -221,17 +233,22 @@ func (s *Server) recordRefusal(id, user string, err error) {
 }
 
 func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
-	user, err := s.auth.Authenticate(r)
+	id, ok := s.requireIdentity(w, r)
+	return id.Name, ok
+}
+
+func (s *Server) requireIdentity(w http.ResponseWriter, r *http.Request) (Identity, bool) {
+	id, err := s.auth.Authenticate(r)
 	if errors.Is(err, ErrUnauthenticated) {
 		writeError(w, http.StatusUnauthorized, err.Error())
-		return "", false
+		return Identity{}, false
 	}
 	if err != nil {
 		s.log.Error("authentication failed", "err", err)
 		writeError(w, http.StatusBadGateway, "authentication unavailable")
-		return "", false
+		return Identity{}, false
 	}
-	return user, true
+	return id, true
 }
 
 func writeStoreError(w http.ResponseWriter, err error) {

@@ -23,8 +23,10 @@ Usage:
   ostiara approve SESSION_ID
   ostiara deny SESSION_ID
       Decide on a teammate's request. You can't decide on your own.
-  ostiara broker [-addr :8080] [-kubeconfig path] [-tls-cert file -tls-key file] [-audit-log path]
+  ostiara broker [-addr :8080] [-kubeconfig path] [-tls-cert file -tls-key file] [-audit-log path] [-recordings-dir dir]
       Run the broker service (the only thing allowed to exec into pods).
+  ostiara replay [-speed 1] [-o file] SESSION_ID|FILE.cast
+      Play back what happened in a recorded session (needs permission to view recordings).
   ostiara doctor [-all] [-strict]
       Show who can still get around ostiara (RBAC, admission policy, platform), as an admin.
   ostiara audit check -k8s FILE -ostiara FILE
@@ -78,6 +80,8 @@ func run(args []string) error {
 		return runAudit(rest)
 	case "doctor":
 		return runDoctor(rest)
+	case "replay":
+		return runReplay(rest)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

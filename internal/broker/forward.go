@@ -3,7 +3,9 @@ package broker
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -49,11 +51,13 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithDeadline(context.Background(), sess.ExpiresAt)
 	defer cancel()
 	start := time.Now()
-	err = kube.Forward(ctx, s.clientset, s.config, sess.Namespace, sess.Pod, sess.Port, conn)
+	counted := &countingConn{rw: conn}
+	err = kube.Forward(ctx, s.clientset, s.config, sess.Namespace, sess.Pod, sess.Port, counted)
 
 	closed := audit.ForSession(audit.ForwardClosed, sess)
 	closed.Actor = user
 	closed.Duration = time.Since(start).Round(time.Millisecond).String()
+	closed.BytesIn, closed.BytesOut = counted.in.Load(), counted.out.Load()
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		closed.Error = "approval window ended"
@@ -65,4 +69,22 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 	}
 	s.record(closed)
+}
+
+// countingConn counts bytes each way, for the audit log.
+type countingConn struct {
+	rw      io.ReadWriter
+	in, out atomic.Int64
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.rw.Read(p)
+	c.in.Add(int64(n))
+	return n, err
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	n, err := c.rw.Write(p)
+	c.out.Add(int64(n))
+	return n, err
 }

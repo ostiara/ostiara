@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/ostiara/ostiara/internal/audit"
 	"github.com/ostiara/ostiara/internal/kube"
+	"github.com/ostiara/ostiara/internal/recording"
 	"github.com/ostiara/ostiara/internal/wire"
 )
 
@@ -46,6 +48,18 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Recording starts before anything reaches the pod; without one, there's no session.
+	var rec *recording.Recorder
+	if s.recordings != nil {
+		title := fmt.Sprintf("ostiara %s: %s on %s/%s", sess.ID, sess.Requester, sess.Namespace, sess.Pod)
+		rec, err = s.recordings.Create(sess.ID, title, time.Now())
+		if err != nil {
+			s.log.Error("session recording unavailable", "id", sess.ID, "err", err)
+			_ = conn.SendJSON(wire.ChanExit, wire.Exit{Code: 1, Error: "session recording unavailable; refusing an unrecorded session"})
+			return
+		}
+	}
+
 	stdinR, stdinW := io.Pipe()
 	sizes := newSizeQueue()
 
@@ -61,6 +75,9 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 			}
 			switch channel {
 			case wire.ChanStdin:
+				if rec != nil && s.recordInput {
+					rec.Input(data)
+				}
 				if _, err := stdinW.Write(data); err != nil {
 					return
 				}
@@ -70,19 +87,26 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 				var sz wire.Resize
 				if json.Unmarshal(data, &sz) == nil {
 					sizes.push(remotecommand.TerminalSize{Width: sz.Width, Height: sz.Height})
+					if rec != nil {
+						rec.Resize(sz.Width, sz.Height)
+					}
 				}
 			}
 		}
 	}()
 
+	stdout, stderr := conn.Writer(wire.ChanStdout), conn.Writer(wire.ChanStderr)
+	if rec != nil {
+		stdout, stderr = recording.Tee(stdout, rec.Output), recording.Tee(stderr, rec.Output)
+	}
 	streams := kube.Streams{
 		Stdin:  stdinR,
-		Stdout: conn.Writer(wire.ChanStdout),
+		Stdout: stdout,
 	}
 	if sess.TTY {
 		streams.SizeQueue = sizes
 	} else {
-		streams.Stderr = conn.Writer(wire.ChanStderr)
+		streams.Stderr = stderr
 	}
 
 	attached := audit.ForSession(audit.Attached, sess)
@@ -118,6 +142,13 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request) {
 	ended.ExitCode = &exit.Code
 	ended.Duration = time.Since(start).Round(time.Millisecond).String()
 	ended.Error = exit.Error
+	if rec != nil {
+		result, err := rec.Close()
+		if err != nil {
+			s.log.Error("session recording incomplete", "id", sess.ID, "err", err)
+		}
+		ended.Recording = &result
+	}
 	s.record(ended)
 	_ = conn.SendJSON(wire.ChanExit, exit)
 }

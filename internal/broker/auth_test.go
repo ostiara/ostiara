@@ -13,8 +13,8 @@ import (
 // brokenAuth stands in for an identity backend that is down.
 type brokenAuth struct{}
 
-func (brokenAuth) Authenticate(*http.Request) (string, error) {
-	return "", errors.New("backend down")
+func (brokenAuth) Authenticate(*http.Request) (Identity, error) {
+	return Identity{}, errors.New("backend down")
 }
 
 func TestRequireUser(t *testing.T) {

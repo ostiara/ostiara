@@ -24,7 +24,7 @@ func fakeReviews(audience string) TokenReviewAuth {
 		if len(want) == 0 {
 			want = []string{"kube-api"}
 		}
-		alice := authnv1.UserInfo{Username: "alice"}
+		alice := authnv1.UserInfo{Username: "alice", Groups: []string{"devs", "system:authenticated"}}
 		switch review.Spec.Token {
 		case "good-token", "ostiara-token":
 			tokenAud := map[string]string{"good-token": "kube-api", "ostiara-token": "ostiara"}[review.Spec.Token]
@@ -67,7 +67,8 @@ func TestTokenReviewAuth(t *testing.T) {
 			if tc.header != "" {
 				req.Header.Set("Authorization", tc.header)
 			}
-			user, err := auth.Authenticate(req)
+			id, err := auth.Authenticate(req)
+			user := id.Name
 
 			switch tc.wantErr {
 			case "":
@@ -102,7 +103,8 @@ func TestTokenReviewAudience(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/v1/sessions", nil)
 			req.Header.Set("Authorization", "Bearer "+tc.token)
-			user, err := auth.Authenticate(req)
+			id, err := auth.Authenticate(req)
+			user := id.Name
 			if tc.wantUser != "" {
 				if err != nil || user != tc.wantUser {
 					t.Fatalf("got (%q, %v), want (%q, nil)", user, err, tc.wantUser)
@@ -121,5 +123,14 @@ func TestTokenReviewWithoutAudienceRejectsOstiaraOnlyTokens(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer ostiara-token")
 	if _, err := fakeReviews("").Authenticate(req); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("ostiara-only token without -token-audience: err = %v, want ErrUnauthenticated", err)
+	}
+}
+
+func TestTokenReviewKeepsGroups(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions", nil)
+	req.Header.Set("Authorization", "Bearer good-token")
+	id, err := fakeReviews("").Authenticate(req)
+	if err != nil || id.Name != "alice" || !slices.Equal(id.Groups, []string{"devs", "system:authenticated"}) {
+		t.Fatalf("got (%+v, %v): want alice with her groups, for access reviews", id, err)
 	}
 }

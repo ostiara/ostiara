@@ -21,8 +21,11 @@ The broker writes one JSON object per line to stdout (or `-audit-log /path`), ea
 
 Events: `session.requested`, `session.approved`, `session.denied`, `session.attached`,
 `session.ended` (with `exitCode` and `duration`), and `session.refused` (someone tried to
-approve their own session or use someone else's). Port-forward sessions add
-`forward.opened` and `forward.closed` for every connection, with the `port`. If the broker
+approve their own session or use someone else's, or to view a recording without permission). Port-forward sessions add
+`forward.opened` and `forward.closed` for every connection, with the `port` and, on close,
+`bytesIn` and `bytesOut`. When sessions are recorded, `session.ended` carries
+`recording: {file, bytes, sha256, truncated}`, and every view of one is a `recording.viewed`
+event. If the broker
 can't write `session.attached` or `forward.opened`, it refuses to open the connection.
 
 **Ship it off the pod.** A log line that only lives in the broker pod can be lost on restart

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ostiara/ostiara/internal/api"
+	"github.com/ostiara/ostiara/internal/recording"
 )
 
 // Stream tags every line so log collectors can route ostiara's audit events.
@@ -24,6 +25,8 @@ const (
 
 	ForwardOpened = "forward.opened" // one connection of an approved port-forward
 	ForwardClosed = "forward.closed"
+
+	RecordingViewed = "recording.viewed"
 )
 
 // Event is one line of the audit log.
@@ -45,6 +48,10 @@ type Event struct {
 	ExitCode  *int      `json:"exitCode,omitempty"`
 	Duration  string    `json:"duration,omitempty"`
 	Error     string    `json:"error,omitempty"`
+
+	Recording *recording.Result `json:"recording,omitempty"` // session.ended: where it is and its sha256
+	BytesIn   int64             `json:"bytesIn,omitempty"`   // forward.closed: client → pod
+	BytesOut  int64             `json:"bytesOut,omitempty"`  // forward.closed: pod → client
 }
 
 // ForSession fills an event from a session; the caller sets Actor and any result fields.

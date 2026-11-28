@@ -34,8 +34,10 @@ alice's CLI ⇄ WebSocket ⇄ broker ⇄ exec stream ⇄ container
 6. ✅ **No way around it**: an admission policy blocks direct exec, attach, port-forward and
    `kubectl debug` in protected namespaces, whatever RBAC or cloud IAM allows; `ostiara doctor`
    shows who can still read Secrets, change workloads or escalate.
-7. Read-only actions without approval (logs, env, ps), each logged.
-8. Session recording, persistent storage, HA broker.
+7. ✅ **Session recording**: every shell's output is saved as an asciicast file, its sha256
+   goes in the audit log, and `ostiara replay` plays it back for people RBAC allows.
+8. Read-only actions without approval (logs, env, ps), each logged.
+9. Persistent session storage, HA broker.
 
 ## Layout
 ```
@@ -50,6 +52,7 @@ internal/wire/            framing for the live session WebSocket
 internal/broker/          session store (rules), HTTP API, exec proxy
 internal/audit/           audit events, and the check against Kubernetes audit logs
 internal/doctor/          finds RBAC and setup that get around ostiara
+internal/recording/       records shell sessions as asciicast files
 internal/notify/          Slack and Teams messages about requests and decisions
 internal/client/          the CLI's HTTP client for the broker
 internal/kube/            Kubernetes client + exec stream
@@ -58,6 +61,7 @@ deploy/broker-namespace.yaml  lets the broker exec in one namespace (copy per na
 deploy/audit-policy.yaml  Kubernetes audit rules for pod access and RBAC changes
 deploy/break-glass.yaml   emergency exec role, bound only during an incident
 deploy/admission-policy.yaml  blocks direct pod access except through the broker
+deploy/recordings-viewer.yaml who may watch session recordings
 docs/audit.md             audit logs, `ostiara audit check`, break-glass
 deploy/dev-role.yaml      developer role: see pods and logs, no exec
 testdata/demo-pod.yaml    a busybox pod to practise against
@@ -137,6 +141,27 @@ ostiara port-forward -n demo -for 30m -reason "check the queue" db-0 15432:5432
 The approver sees the pod, port and window. Any number of connections may use one approval,
 each logged as `forward.opened` / `forward.closed`; when the window ends, open connections
 are cut. The local end only listens on 127.0.0.1.
+
+## Session recording
+The broker records what every exec session prints into the `ostiara-recordings` volume, as
+[asciicast](https://docs.asciinema.org/manual/asciicast/v2/) files. If it can't start a
+recording, it refuses the session. Keystrokes are left out unless you add `-record-input`,
+because they can include passwords typed at prompts that don't echo. Each `session.ended`
+audit event carries the recording's size and sha256, so a recording that was changed later
+won't match the log you shipped off the cluster.
+
+Watching one needs RBAC verb `get` on `sessions/recording` in API group `ostiara.io`. Cluster
+admins have it; grant others the `ostiara-recordings-viewer` ClusterRole:
+```bash
+kubectl apply -f deploy/recordings-viewer.yaml
+kubectl create clusterrolebinding ostiara-recordings-viewer-security \
+  --clusterrole=ostiara-recordings-viewer --group=security
+ostiara replay 2cd09933                 # play it in your terminal
+ostiara replay -o 2cd09933.cast 2cd09933  # or save it (asciinema play works too)
+```
+Every view, and every refused attempt, is in the audit log. Recordings hold whatever was on
+screen, secrets included, so keep the viewer role small. Port-forward connections aren't
+recorded, but each `forward.closed` event counts the bytes sent each way.
 
 ## Chat notifications
 The broker can post every request, approval and denial to Slack and/or Microsoft Teams, with
