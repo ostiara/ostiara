@@ -104,6 +104,19 @@ that enforces NetworkPolicy (kind's default does; so do Calico and Cilium).
 kubectl label namespace <namespace> ostiara.io/broker-access=true
 ```
 
+## Images and signatures
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it builds `linux/amd64` and
+`linux/arm64` images, pushes them to `ghcr.io/ostiara/ostiara` with an SBOM and build
+provenance, and signs them with cosign using GitHub's OIDC identity (no keys to leak).
+Check an image before you run it, and deploy it by digest:
+```bash
+cosign verify ghcr.io/ostiara/ostiara:<version> \
+  --certificate-identity-regexp '^https://github.com/ostiara/ostiara/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+Base images are pinned by digest, and Dependabot proposes updates to them, to Go modules
+and to GitHub Actions every week.
+
 ## Try it locally (dev mode)
 ```bash
 go build -o bin/ostiara ./cmd/ostiara
